@@ -1,0 +1,316 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+//////////////////////////////////////////////////////
+// USER & AUTH
+//////////////////////////////////////////////////////
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companies     UserCompany[]
+  refreshTokens RefreshToken[]
+}
+
+model Company {
+  id   String @id @default(uuid())
+  name String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users       UserCompany[]
+  clients     Client[]
+  suppliers   Supplier[]
+  brands      Brand[]
+  categories  Category[]
+  tags        Tag[]
+  products    Product[]
+  warehouses  Warehouse[]
+  inventories ProductInventory[]
+  taxes       ProductTax[]
+}
+
+model UserCompany {
+  userId    String
+  companyId String
+  role      Role   @default(ADMIN)
+
+  user    User    @relation(fields: [userId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@id([userId, companyId])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+enum Role {
+  ADMIN
+  USER
+}
+
+//////////////////////////////////////////////////////
+// CLIENT
+//////////////////////////////////////////////////////
+
+enum ClientType {
+  PF
+  PJ
+  PE
+}
+
+model Client {
+  id       String     @id @default(uuid())
+  name     String
+  type     ClientType
+  document String
+
+  ie          String?
+  indicatorIE Int?
+
+  email String?
+  phone String?
+
+  street       String
+  number       String
+  complement   String?
+  neighborhood String
+  city         String
+  state        String
+  zipCode      String
+  country      String  @default("1058")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, document])
+  @@index([companyId])
+}
+
+//////////////////////////////////////////////////////
+// SUPPLIER
+//////////////////////////////////////////////////////
+
+model Supplier {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  name     String
+  document String?
+  email    String?
+  phone    String?
+
+  products Product[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+}
+
+//////////////////////////////////////////////////////
+// BRAND
+//////////////////////////////////////////////////////
+
+model Brand {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  name     String
+  products Product[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+//////////////////////////////////////////////////////
+// CATEGORY
+//////////////////////////////////////////////////////
+
+model Category {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  name String
+
+  parentId String?
+  parent   Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryHierarchy")
+
+  products Product[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+//////////////////////////////////////////////////////
+// TAG
+//////////////////////////////////////////////////////
+
+model Tag {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  name String
+
+  products Product[] @relation("ProductTags")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+//////////////////////////////////////////////////////
+// WAREHOUSE
+//////////////////////////////////////////////////////
+
+model Warehouse {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  name     String
+  location String?
+
+  inventories ProductInventory[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+//////////////////////////////////////////////////////
+// PRODUCT
+//////////////////////////////////////////////////////
+
+model Product {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  code             String?
+  description      String
+  shortDescription String?
+
+  price     Decimal  @db.Decimal(15, 2)
+  costPrice Decimal? @db.Decimal(15, 2)
+
+  supplierId String?
+  supplier   Supplier? @relation(fields: [supplierId], references: [id])
+
+  brandId String?
+  brand   Brand?  @relation(fields: [brandId], references: [id])
+
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id])
+
+  gtin String?
+  ncm  String?
+  cest String?
+
+  weight Float?
+  width  Float?
+  height Float?
+  depth  Float?
+
+  expirationDate DateTime?
+
+  isVariant Boolean   @default(false)
+  parentId  String?
+  parent    Product?  @relation("ProductVariants", fields: [parentId], references: [id])
+  variants  Product[] @relation("ProductVariants")
+
+  tags Tag[] @relation("ProductTags")
+
+  tax         ProductTax?
+  inventories ProductInventory[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+}
+
+//////////////////////////////////////////////////////
+// PRODUCT TAX
+//////////////////////////////////////////////////////
+
+model ProductTax {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  productId String  @unique
+  product   Product @relation(fields: [productId], references: [id])
+
+  origin        String?
+  ipiTaxClass   String?
+  icmsStBase    Decimal? @db.Decimal(15, 2)
+  icmsStAmount  Decimal? @db.Decimal(15, 2)
+  icmsOwnAmount Decimal? @db.Decimal(15, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+}
+
+//////////////////////////////////////////////////////
+// PRODUCT INVENTORY
+//////////////////////////////////////////////////////
+
+model ProductInventory {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+
+  quantity Int  @default(0)
+  minStock Int?
+  maxStock Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([productId, warehouseId])
+  @@index([companyId])
+}
