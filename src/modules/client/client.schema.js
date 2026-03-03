@@ -3,43 +3,45 @@ import { z } from 'zod';
 export const createClientSchema = z.object({
   name: z.string()
     .min(2, "Nome deve ter pelo menos 2 caracteres")
-    .max(255),
+    .max(255, "Nome muito longo"),
     
-  type: z.enum(['PF', 'PJ', 'PE']),
-
+  type: z.enum(['PF', 'PJ', 'PE'], {
+    required_error: "Tipo de cliente é obrigatório",
+    invalid_type_error: "Tipo deve ser PF, PJ ou PE"
+  }),
   
+  // Aumentei o max para 18 para acomodar CNPJ com pontuação (ex: 00.000.000/0000-00)
   document: z.string()
-    .min(11, "Documento inválido"),
+    .min(11, "Documento inválido")
+    .max(18, "Documento muito longo"),
   
-  ie: z.string().max(20).optional(),
+  ie: z.string().max(20, "Inscrição Estadual muito longa").optional(),
   
-  indicatorIE: z.int().optional(),
+  // CORREÇÃO: z.int() substituído por z.number().int()
+  indicatorIE: z.number().int("O indicador IE deve ser um número inteiro").optional(),
 
   email: z.string()
     .email("Email inválido"),
 
   phone: z.string()
     .min(8, "Telefone inválido")
-    .max(20),
+    .max(20, "Telefone muito longo"),
 
-  street: z.string().min(5),
-  number: z.string().min(1, "Número inválido"),
-  complement: z.string().optional(),
-  neighborhood: z.string().min(2),
-  city: z.string().min(2),
-  state: z.string().length(2),
-  zipCode: z.string().min(8),
-  country: z.string().max(10)
+  street: z.string().min(5, "Logradouro muito curto").max(255),
+  number: z.string().min(1, "Número inválido").max(20),
+  complement: z.string().max(100).optional(),
+  neighborhood: z.string().min(2, "Bairro muito curto").max(100),
+  city: z.string().min(2, "Cidade muito curta").max(100),
+  state: z.string().length(2, "Use a sigla do estado (UF) com 2 letras"),
+  zipCode: z.string().min(8, "CEP inválido").max(10),
+  
+  // Adicionei um default para facilitar a vida do usuário
+  country: z.string().max(50).default('Brasil'),
+  status: z.enum(['ACTIVE', 'INACTIVE']).default('ACTIVE')
 }).strict();
 
-export const updateClientSchema = z.object({
-  name: z.string().min(2).max(255).optional(),
-  email: z.string().email().optional(),
-  phone: z.string().min(8).max(20).optional(),
-  street: z.string().max(255).optional(),
-  number: z.string().max(10).optional(),
-  neighborhood: z.string().max(100).optional(),
-  city: z.string().max(100).optional(),
-  state: z.string().length(2).optional(),
-  zipCode: z.string().max(10).optional()
-}).strict();
+// CORREÇÃO DE ARQUITETURA:
+// O .partial() pega o schema acima e torna todos os campos opcionais. 
+// Isso garante que a validação de email, min/max de telefone e tudo mais 
+// sejam idênticos na criação e na edição!
+export const updateClientSchema = createClientSchema.partial().strict();

@@ -1,77 +1,56 @@
 import prisma from "../../../database/prisma.js";
+import { AppError } from "../../../utils/AppError.js";
+import { createWithSequence } from "../../../utils/createWithSequence.js";
 
 export async function createWarehouse(companyId, data) {
-    if (!data || Object.keys(data).length === 0) {
-        throw new Error('Nenhum campo válido enviado para atualização');
+    if (!data?.name) {
+        throw new AppError('O nome do depósito é obrigatório', 400);
     }
 
-    return prisma.warehouse.create({
-        data: {
-            ...data,
-            companyId
-        }
-    })
+    return createWithSequence('warehouse', companyId, data);
 }
 
 export async function getAllWarehouse(companyId) {
     return prisma.warehouse.findMany({
-        where: {
-            companyId
-        },
-        orderBy: { createdAt: 'desc' }
-    })
+        where: { companyId },
+        orderBy: { name: 'asc' }
+    });
 }
 
 export async function getWarehouseById(companyId, id) {
+    const warehouse = await prisma.warehouse.findFirst({
+        where: { id, companyId }
+    });
 
-    return prisma.warehouse.findFirst({
-        where: {
-            companyId,
-            id
-        }
-    })
+    if (!warehouse) {
+        throw new AppError("Depósito não encontrado", 404);
+    }
+
+    return warehouse;
 }
 
 export async function updateWarehouse(companyId, id, data) {
+    // Valida existência e tenant isolation
+    await getWarehouseById(companyId, id);
 
-    const existingWarehouse = await prisma.warehouse.findFirst({
-        where: {
-            companyId,
-            id
-        }
-    })
-
-    if(!existingWarehouse) {
-        throw new Error("Marca não encontrada");
+    if (!data || Object.keys(data).length === 0) {
+        throw new AppError('Nenhum dado enviado para atualização', 400);
     }
 
     return prisma.warehouse.update({
-        where: {
-            companyId,
-            id
-        },
+        where: { id },
         data
-    })
+    });
 }
 
 export async function deleteWarehouse(companyId, id) {
-    
-    const existingWarehouse = await prisma.warehouse.findFirst({
-        where: {
-            companyId,
-            id
-        }
-    })
+    // Valida existência
+    await getWarehouseById(companyId, id);
 
-    if (!existingWarehouse){
-        throw new Error("Marca não encontrada");
-    }
+    // Dica Sênior: Antes de deletar, você poderia verificar se há estoque 
+    // vinculado a este warehouse para evitar inconsistência de dados.
 
     return prisma.warehouse.delete({
-        where: {
-            companyId,
-            id
-        }
-    })
-
+        where: { id }
+    });
 }

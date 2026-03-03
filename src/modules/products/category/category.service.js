@@ -1,89 +1,66 @@
 import prisma from "../../../database/prisma.js";
+import { AppError } from "../../../utils/AppError.js";
+import { createWithSequence } from "../../../utils/createWithSequence.js";
 
-export async function createCategory(companyId, parentId, data) {
-    if (!data || Object.keys(data).length === 0) {
-        throw new Error('Nenhum campo válido enviado para atualização');
-    }
+export async function createCategory(companyId, data) {
 
-    if (parentId && parentId === id) {
-        throw new AppError("Categoria não pode ser filha dela mesma");
-    }
+    if (!data?.name)
+        throw new AppError("O nome da categoria é obrigatório", 400);
 
-    if (parentId) {
+    if (data.parentId) {
         const parent = await prisma.category.findFirst({
-            where: {
-                id: parentId,
-                companyId: req.companyId
-            }
+            where: { id: data.parentId, companyId }
         });
 
-        if (!parent) {
-            throw new AppError("Categoria pai não encontrada");
-        }
+        if (!parent)
+            throw new AppError("Categoria pai inválida", 404);
     }
 
-    return prisma.category.create({
-        data: {
-            ...data,
-            companyId
-        }
-    })
+    return createWithSequence('category', companyId, data);
 }
 
 export async function getAllCategory(companyId) {
-
     return prisma.category.findMany({
-        where: {
-            companyId
-        },
-        orderBy: { name: 'asc' }
-    })
-
+        where: { companyId },
+        orderBy: { name: 'asc' },
+        include: { _count: { select: { products: true } } } // Bônus: mostra quantos produtos há na categoria
+    });
 }
 
 export async function getCategoryById(companyId, id) {
+    const category = await prisma.category.findFirst({
+        where: { id, companyId },
+        include: { children: true }
+    });
 
-    return prisma.category.findFirst({
-        where: {
-            companyId,
-            id
-        },
-        include: {
-            children: true
-        }
-    })
+    if (!category) throw new AppError("Categoria não encontrada", 404);
 
+    return category;
 }
 
 export async function updateCategory(companyId, id, data) {
-    if (!data || Object.keys(data).length === 0) {
-        throw new Error('Nenhum campo válido enviado para atualização');
-    }
+    await getCategoryById(companyId, id); // Valida existência
 
-    const existingCategory = await prisma.category.findFirst({
-        where: { id, companyId }
-    });
-
-    if (!existingCategory) {
-        throw new Error('Cliente não encontrado!');
+    if (data.parentId === id) {
+        throw new AppError("Uma categoria não pode ser pai de si mesma", 400);
     }
 
     return prisma.category.update({
-        where: {
-            companyId,
-            id
-        },
+        where: { id },
         data
-    })
+    });
 }
 
 export async function deleteCategory(companyId, id) {
+    const category = await getCategoryById(companyId, id);
+
+    // Validação Profissional: Não permitir deletar categoria que tem subcategorias ou produtos
+    const hasChildren = await prisma.category.count({ where: { parentId: id } });
+    if (hasChildren > 0) {
+        throw new AppError("Não é possível excluir uma categoria que possui subcategorias", 400);
+    }
 
     return prisma.category.delete({
-        where: {
-            companyId,
-            id
-        }
-    })
-
+        where: { id }
+    });
 }

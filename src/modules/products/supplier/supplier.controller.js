@@ -1,64 +1,27 @@
 import { createSupplier, deleteSupplier, getAllSupplier, getSupplierById, updateSupplier } from "./supplier.service.js";
+import { asyncHandler } from "../../../utils/asyncHandler.js";
 
-export async function createController(req, res) {
-    const companyId = req.companyId;
+export const createController = asyncHandler(async (req, res) => {
+    const supplier = await createSupplier(req.companyId, req.validatedBody);
+    res.status(201).json(supplier);
+});
 
-    try {
-        const supplier = await createSupplier(companyId, req.validatedBody);
+export const getAllController = asyncHandler(async (req, res) => {
+    const suppliers = await getAllSupplier(req.companyId);
+    res.status(200).json(suppliers);
+});
 
-        return res.status(200).json(supplier);
-    } catch (error) {
-        return res.status(500).json({ error: error.message });
-    }
-}
+export const getByIdController = asyncHandler(async (req, res) => {
+    const supplier = await getSupplierById(req.companyId, req.params.id);
+    res.status(200).json(supplier);
+});
 
-export async function getAllConroller(req, res) {
-    const companyId = req.companyId;
+export const updateController = asyncHandler(async (req, res) => {
+    const supplier = await updateSupplier(req.companyId, req.params.id, req.validatedBody);
+    res.status(200).json(supplier);
+});
 
-    try {
-        const supplier = await getAllSupplier(companyId);
-
-        return res.status(200).json(supplier);
-    } catch(error) {
-        return res.status(500).json({ error: error.message });
-    }
-}
-
-export async function getByIdController(req, res) {
-    const companyId = req.companyId;
-    const { id } = req.params;
-
-    try {
-        const supplier = await getSupplierById(companyId, id);
-
-        return res.status(200).json(supplier);
-    } catch(error) {
-        return res.status(500).json({ error: error.message });
-    }
-}
-
-export async function updateController(req, res) {
-    const companyId = req.companyId;
-    const { id } = req.params;
-
-    try {
-        const supplier = await updateSupplier(companyId, id, req.validatedBody);
-
-        return res.status(200).json(supplier);
-    } catch(error) {
-        return res.status(500).json({ error: error.message });
-    }
-}
-
-export async function deleteController(req, res) {
-    const companyId = req.companyId;
-    const { id } = req.params;
-
-    try {
-        const supplier = await deleteSupplier(companyId, id);
-
-        return res.status(200).json(supplier);
-    } catch(error) {
-        return res.status(500).json({ error: error.message })
-    }
-}
+export const deleteController = asyncHandler(async (req, res) => {
+    await deleteSupplier(req.companyId, req.params.id);
+    res.status(200).json({ message: "Fornecedor removido com sucesso" });
+});

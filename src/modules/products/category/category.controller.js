@@ -1,69 +1,27 @@
-import { ca } from "zod/locales";
 import { createCategory, deleteCategory, getAllCategory, getCategoryById, updateCategory } from "./category.service.js";
+import { asyncHandler } from "../../../utils/asyncHandler.js";
 
-export async function createController(req, res) {
-    const companyId = req.companyId;
-    const parentId = req.parentId
+export const createController = asyncHandler(async (req, res) => {
+    const category = await createCategory(req.companyId, req.validatedBody);
+    res.status(201).json(category);
+});
 
-    try {
-        const category = await createCategory(companyId, parentId, req.validatedBody);
+export const listController = asyncHandler(async (req, res) => {
+    const categories = await getAllCategory(req.companyId);
+    res.status(200).json(categories);
+});
 
-        return res.status(200).json(category);
-    } catch (error) {
-        return res.status(500).json({ error: error.message });
-    }
-}
+export const getByIdController = asyncHandler(async (req, res) => {
+    const category = await getCategoryById(req.companyId, req.params.id);
+    res.status(200).json(category);
+});
 
-export async function listController(req, res) {
-    
-    const companyId = req.companyId;
-    
-    try {
-        const category = await getAllCategory(companyId);
+export const updateController = asyncHandler(async (req, res) => {
+    const category = await updateCategory(req.companyId, req.params.id, req.validatedBody);
+    res.status(200).json(category);
+});
 
-        return res.status(200).json(category);
-
-    } catch(error) {
-        return res.status(500).json({ error: error.message })
-    }
-}
-
-export async function getByIdController(req, res) {
-    const companyId = req.companyId;
-    const { id } = req.params;
-
-    try {
-        const company = await getCategoryById(companyId, id);
-
-        return res.status(200).json(company);
-    } catch(error) {
-        return res.status(500).json({ error: error.message })
-    }
-    
-}
-
-export async function updateController(req, res) {
-    const companyId = req.companyId;
-    const { id } = req.params;
-
-    try {
-        const category = await updateCategory(companyId, id, req.validatedBody);
-
-        return res.status(200).json(category);
-    } catch(error) {
-        return res.status(500).json({ error: error.message })
-    }
-}
-
-export async function deleteController(req, res) {
-    const companyId = req.companyId;
-    const { id } = req.params;
-
-    try {
-        const company = await deleteCategory(companyId, id);
-
-        return res.status(200).json(company);
-    } catch(error) {
-        return res.status(500).json({ error: error.message })
-    }
-}
+export const deleteController = asyncHandler(async (req, res) => {
+    await deleteCategory(req.companyId, req.params.id);
+    res.status(200).json({ message: "Categoria removida com sucesso" });
+});

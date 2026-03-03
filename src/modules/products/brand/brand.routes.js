@@ -4,7 +4,7 @@ import { authMiddleware } from "../../../middleware/auth.middleware.js";
 import { requireCompany } from "../../../middleware/require.company.js";
 import { validate } from "../../../middleware/validate.middleware.js";
 
-import { createBrandSchema } from "./brand.schema.js";
+import { createBrandSchema, updateBrandSchema } from "./brand.schema.js";
 import { createController, deleteController, getAllController, getByIdController, updateController } from './brand.controller.js';
 
 const router = express.Router();
@@ -35,7 +35,7 @@ router.put(
     '/:id',
     authMiddleware,
     requireCompany,
-    validate(createBrandSchema),
+    validate(updateBrandSchema),
     updateController
 )
 

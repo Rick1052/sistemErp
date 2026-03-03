@@ -1,6 +1,6 @@
 import express from 'express';
 
-import { createController, deleteController, getAllConroller, getByIdController, updateController } from './supplier.controller.js';
+import { createController, getAllController, deleteController, getByIdController, updateController } from './supplier.controller.js';
 
 import { authMiddleware } from '../../../middleware/auth.middleware.js';
 import { requireCompany } from '../../../middleware/require.company.js';
@@ -22,7 +22,7 @@ router.get(
     '/',
     authMiddleware,
     requireCompany,
-    getAllConroller
+    getAllController
 )
 
 router.get(

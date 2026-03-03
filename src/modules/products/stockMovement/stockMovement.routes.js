@@ -3,8 +3,8 @@ import express from 'express';
 import { authMiddleware } from "../../../middleware/auth.middleware.js";
 import { requireCompany } from "../../../middleware/require.company.js";
 import { validate } from "../../../middleware/validate.middleware.js";
-import { createController, getByProductController, updateController } from './pdInventory.controller.js';
-import { createInventorySchema, updateInventorySchema } from './pdInventory.schema.js';
+import { createController, listController } from './stockMovement.controller.js';
+import { createMovementSchema } from './stockMovement.schema.js';
 
 const router = express.Router();
 
@@ -12,23 +12,15 @@ router.post(
     '/',
     authMiddleware,
     requireCompany,
-    validate(createInventorySchema),
+    validate(createMovementSchema),
     createController
 )
 
 router.get(
-    '/:productId',
+    '/',
     authMiddleware,
     requireCompany,
-    getByProductController
-)
-
-router.put(
-    '/:productId',
-    authMiddleware,
-    requireCompany,
-    validate(updateInventorySchema),
-    updateController
+    listController
 )
 
 export default router;

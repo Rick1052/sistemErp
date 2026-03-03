@@ -3,78 +3,48 @@ import {
     getAllClients, 
     getClientById, 
     deleteClient,
-    updateClient
+    updateClient,
+    deleteManyClient
 } from "./client.service.js";
+import { asyncHandler } from "../../utils/asyncHandler.js";
 
-export async function createController(req, res){
-    const companyId = req.companyId;
+export const createController = asyncHandler(async (req, res) => {
+    const client = await createClient(req.companyId, req.validatedBody);
+    return res.status(201).json(client);
+});
 
-    try {
+export const listController = asyncHandler(async (req, res) => {
+    const clients = await getAllClients(req.companyId);
+    return res.status(200).json(clients);
+});
 
-        const client = await createClient(companyId, req.validatedBody);
+export const getByIdController = asyncHandler(async (req, res) => {
+    const client = await getClientById(req.companyId, req.params.id);
+    return res.status(200).json(client);
+});
 
-        return res.status(200).json(client);
-    } catch (error) {
-        return res.status(500).json({ error: error.message });
-    }
-};
+export const updateController = asyncHandler(async (req, res) => {
+    const client = await updateClient(req.companyId, req.params.id, req.validatedBody);
+    return res.status(200).json(client);
+});
 
-export async function listController(req, res){
-    try {
-        const companyId = req.companyId;
-        
-        const clients = await getAllClients(companyId);
+export const deleteControler = asyncHandler(async (req, res) => {
+    await deleteClient(req.companyId, req.params.id);
+    return res.status(200).json({ message: "Cliente removido com sucesso" });
+});
 
-        return res.status(200).json(clients)
-    } catch (error) {
-        return res.status(500).json({ error: error.message });
-    }
-};
+export const deleteManyController = asyncHandler(async (req, res) => {
+  const { ids } = req.body;
 
-export async function getByIdController(req, res) {
-    try {
-        const companyId = req.companyId;
-        const { id } = req.params;
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({
+      message: "Envie um array de IDs para excluir"
+    });
+  }
 
-        const client = await getClientById(companyId, id);
+  await deleteManyClient(req.companyId, ids);
 
-        if(!client) {
-            return res.status(404).json({ error: "Cliente não encontrado" });
-        }
-
-        return res.status(200).json(client);
-    } catch (error) {
-        return res.status(500).json({ error: error.message });
-    }
-};
-
-export async function updateController(req, res) {
-    const { id } = req.params;
-    const companyId = req.companyId;
-
-    try {
-        
-        const client = await updateClient(companyId, id, req.validatedBody);
-
-        res.status(200).json(client);
-    } catch (error) {
-        return res.status(500).json({ error: error.message });
-    }
-}
-
-export async function deleteControler(req, res) {
-    try {
-        const companyId = req.companyId;
-        const { id } = req.params;
-
-        const client = await deleteClient(companyId, id);
-
-        if(!client){
-            return res.status(404).json({ error: "Cliente não encontrado" });
-        }
-
-        return res.status(200).json(client);
-    } catch (error) {
-        return res.status(500).json({ error: error.message });
-    }
-}
+  return res.status(200).json({
+    message: "Clientes removidos com sucesso"
+  });
+});

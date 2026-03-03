@@ -1,33 +1,28 @@
-import { register, login, refreshUserToken } from './auth.service.js'
+import { register, login, refreshUserToken } from './auth.service.js';
+import { asyncHandler } from '../../utils/asyncHandler.js';
 
-export async function registerController(req, res) {
-  try {
-    const user = await register(req.body)
+// Criar usuário
+export const registerController = asyncHandler(async (req, res) => {
+    await register(req.body);
+    
+    // Faz o login automático para retornar o accessToken (necessário para criar a company) e userId
+    const tokens = await login({ email: req.body.email, password: req.body.password });
+    
     return res.status(201).json({
-      message: "Usuário criado com sucesso",
-      user
-    })
-  } catch (error) {
-    return res.status(400).json({ error: error.message })
-  }
-}
+        message: "Usuário criado com sucesso",
+        ...tokens
+    });
+});
 
-export async function loginController(req, res) {
-  try {
-    const tokens = await login(req.body)
-    return res.json(tokens)
-  } catch (error) {
-    return res.status(400).json({ message: error.message })
-  }
-}
+// Login
+export const loginController = asyncHandler(async (req, res) => {
+    const tokens = await login(req.body);
+    return res.json(tokens);
+});
 
-export async function refreshController(req, res) {
-  try {
-    const { refreshToken } = req.body
-    const newToken = await refreshUserToken(refreshToken)
-    return res.json(newToken)
-  } catch (error) {
-    return res.status(401).json({ message: error.message })
-  }
-}
-
+// Refresh Token
+export const refreshController = asyncHandler(async (req, res) => {
+    const { refreshToken } = req.body;
+    const newToken = await refreshUserToken(refreshToken);
+    return res.json(newToken);
+});

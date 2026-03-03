@@ -1,65 +1,27 @@
 import { createTag, deleteTag, getAllTag, getTagById, updateTag } from "./tag.service.js";
+import { asyncHandler } from "../../../utils/asyncHandler.js";
 
-export async function createController(req, res) {
-    const companyId = req.companyId
+export const createController = asyncHandler(async (req, res) => {
+    const tag = await createTag(req.companyId, req.validatedBody);
+    res.status(201).json(tag);
+});
 
-    try {
-        const tag = await createTag(companyId, req.validatedBody);
+export const getAllController = asyncHandler(async (req, res) => {
+    const tags = await getAllTag(req.companyId);
+    res.status(200).json(tags);
+});
 
-        return res.status(200).json(tag);
-    } catch (error) {
-        return res.status(500).json({ error: error.message })
-    }
+export const getByIdController = asyncHandler(async (req, res) => {
+    const tag = await getTagById(req.companyId, req.params.id);
+    res.status(200).json(tag);
+});
 
-}
+export const updateController = asyncHandler(async (req, res) => {
+    const tag = await updateTag(req.companyId, req.params.id, req.validatedBody);
+    res.status(200).json(tag);
+});
 
-export async function getAllController(req, res) {
-    const companyId = req.companyId;
-
-    try {
-        const tag = await getAllTag(companyId);
-
-        return res.status(200).json(tag)
-    } catch(error) {
-        return res.status(500).json({ error: error.message })
-    }
-}
-
-export async function getByIdController(req, res) {
-    const companyId = req.companyId;
-    const { id } = req.params;
-
-    try {
-        const tag = await getTagById(companyId, id)
-
-        return res.status(200).json(tag);
-    } catch(error) {
-        return res.status(500).json({ error: error.message })
-    }
-}
-
-export async function updateController(req, res) {
-    const companyId = req.companyId;
-    const { id } = req.params;
-    
-    try {
-        const tag = await updateTag(companyId, id, req.validatedBody);
-
-        return res.status(200).json(tag);
-    } catch(error) {
-        return res.status(500).json({ error: error.message })
-    }
-}
-
-export async function deleteController(req, res) {
-    const companyId = req.companyId;
-    const { id } = req.params;
-
-    try {
-        const tag = await deleteTag(companyId, id);
-
-        return res.status(200).json(tag)
-    } catch(error) {
-        return res.status(500).json({ error: error.message })
-    }
-}
+export const deleteController = asyncHandler(async (req, res) => {
+    await deleteTag(req.companyId, req.params.id);
+    res.status(200).json({ message: "Tag removida com sucesso" });
+});

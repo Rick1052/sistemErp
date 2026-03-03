@@ -4,7 +4,8 @@ import {
     listController, 
     getByIdController, 
     deleteControler,
-    updateController
+    updateController,
+    deleteManyController
 } from "./client.controller.js";
 
 import { authMiddleware } from "./../../middleware/auth.middleware.js";
@@ -50,6 +51,13 @@ router.delete(
     authMiddleware, 
     requireCompany,
     deleteControler
+)
+
+router.delete(
+    "/",
+    authMiddleware,
+    requireCompany,
+    deleteManyController
 )
 
 export default router
