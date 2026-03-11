@@ -1,12 +1,27 @@
-import { createStockMovement, getStockMovements } from "./stockMovement.service.js";
+import { registerEntry, registerExit, getStockMovements } from "./stockMovement.service.js";
 import { asyncHandler } from "../../../utils/asyncHandler.js";
+import { AppError } from "../../../utils/AppError.js";
 
 export const createController = asyncHandler(async (req, res) => {
-    const movement = await createStockMovement(
-        req.companyId, 
-        req.user.id, 
-        req.validatedBody
-    );
+    const { type, ...movementData } = req.validatedBody;
+    
+    let movement;
+
+    if (type === 'IN') {
+        movement = await registerEntry(
+            req.companyId,
+            req.user.id,
+            movementData
+        );
+    } else if (type === 'OUT') {
+        movement = await registerExit(
+            req.companyId,
+            req.user.id,
+            movementData
+        );
+    } else {
+        throw new AppError("Apenas movimentações IN e OUT são permitidas manualmente", 400);
+    }
     
     res.status(201).json({
         message: "Movimentação processada com sucesso",

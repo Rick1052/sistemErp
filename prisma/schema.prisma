@@ -30,7 +30,9 @@ enum ClientType {
 enum MovementType {
   IN
   OUT
-  BAL
+  BALANCE
+  RESERVE
+  RELEASE_RESERVE
 }
 
 //////////////////////////////////////////////////////
@@ -282,8 +284,12 @@ model Product {
   shortDescription String?
   status           Status  @default(ACTIVE)
 
-  price     Decimal  @db.Decimal(15, 2)
-  costPrice Decimal? @db.Decimal(15, 2)
+  price         Decimal  @db.Decimal(15, 2)
+  costPrice     Decimal? @db.Decimal(15, 2)
+  averageCost   Decimal  @default(0) @db.Decimal(15, 2)
+
+  physicalStock Int      @default(0)
+  reservedStock Int      @default(0)
 
   supplierId String?
   supplier   Supplier? @relation(fields: [supplierId], references: [id])
@@ -376,6 +382,9 @@ model StockMovement {
 
   type        MovementType
   quantity    Int
+  unitCost    Decimal? @db.Decimal(15, 2)
+  reason      String
+  documentRef String?
   description String?
 
   createdAt DateTime @default(now())

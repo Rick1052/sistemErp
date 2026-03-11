@@ -10,12 +10,26 @@ export const createController = asyncHandler(async (req, res) => {
 
 export const getAllController = asyncHandler(async (req, res) => {
     const products = await getAllProducts(req.companyId);
-    res.status(200).json(products);
+    
+    // Inject dynamic availableStock property
+    const productsWithAvailableStock = products.map(product => ({
+        ...product,
+        availableStock: (product.physicalStock || 0) - (product.reservedStock || 0)
+    }));
+
+    res.status(200).json(productsWithAvailableStock);
 });
 
 export const getByIdController = asyncHandler(async (req, res) => {
     const product = await getProductById(req.companyId, req.params.id);
-    res.status(200).json(product);
+    
+    // Inject dynamic availableStock property
+    const productWithAvailableStock = {
+        ...product,
+        availableStock: (product.physicalStock || 0) - (product.reservedStock || 0)
+    };
+
+    res.status(200).json(productWithAvailableStock);
 });
 
 export const updateController = asyncHandler(async (req, res) => {
