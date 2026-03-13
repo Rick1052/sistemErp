@@ -11,9 +11,12 @@ import brandProduct from './modules/products/brand/brand.routes.js'
 import tagProduct from './modules/products/tag/tag.routes.js'
 import warehouseProduct from './modules/products/warehouse/warehouse.routes.js'
 import product from './modules/products/product/product.routes.js'
+import sale from './modules/sales/sale.routes.js'
+import saleStatus from './modules/sales/saleStatus.routes.js'
 import productInventory from './modules/products/productInventory/pdInventory.routes.js'
 import productTax from './modules/products/productTax/pdTax.routes.js'
 import stockMovement from './modules/products/stockMovement/stockMovement.routes.js'
+import financialRoutes from './modules/financial/financial.routes.js'
 
 
 import { globalErrorHandler } from './middleware/error.middleware.js'
@@ -36,9 +39,12 @@ app.use('/api/products/brand', brandProduct)
 app.use('/api/products/tag', tagProduct)
 app.use('/api/products/warehouse', warehouseProduct)
 app.use('/api/products', product)
+app.use('/api/sales', sale)
+app.use('/api/sale-statuses', saleStatus)
 app.use('/api/products/products-inventory', productInventory)
 app.use('/api/products/product-tax', productTax)
 app.use('/api/products/stock-movement', stockMovement)
+app.use('/api/financial', financialRoutes)
 
 
 // Router Error

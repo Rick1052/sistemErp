@@ -9,40 +9,32 @@ import { createController, deleteController, getAllController, getByIdController
 
 const router = express.Router();
 
+router.use(authMiddleware, requireCompany);
+
 router.post(
     '/',
-    authMiddleware,
-    requireCompany,
     validate(createWarehouseSchema),
     createController
 )
 
 router.get(
     '/',
-    authMiddleware,
-    requireCompany,
     getAllController
 )
 
 router.get(
     '/:id',
-    authMiddleware,
-    requireCompany,
     getByIdController
 )
 
 router.put(
     '/:id',
-    authMiddleware,
-    requireCompany,
     validate(createWarehouseSchema),
     updateController
 )
 
 router.delete(
     '/:id',
-    authMiddleware,
-    requireCompany,
     deleteController
 )
 

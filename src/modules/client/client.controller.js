@@ -14,7 +14,8 @@ export const createController = asyncHandler(async (req, res) => {
 });
 
 export const listController = asyncHandler(async (req, res) => {
-    const clients = await getAllClients(req.companyId);
+    const { search } = req.query;
+    const clients = await getAllClients(req.companyId, search);
     return res.status(200).json(clients);
 });
 

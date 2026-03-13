@@ -10,40 +10,32 @@ import { createCategorySchema, updateCategorySchema } from "./category.schema.js
 
 const router = express.Router();
 
+router.use(authMiddleware, requireCompany);
+
 router.post(
     '/',
-    authMiddleware,
-    requireCompany,
     validate(createCategorySchema),
     createController
 )
 
 router.get(
     '/',
-    authMiddleware,
-    requireCompany,
     listController
 )
 
 router.get(
     '/:id',
-    authMiddleware,
-    requireCompany,
     getByIdController
 )
 
 router.put(
     '/:id',
-    authMiddleware,
-    requireCompany,
     validate(updateCategorySchema),
     updateController
 )
 
 router.delete(
     '/:id',
-    authMiddleware,
-    requireCompany,
     deleteController
 )
 

@@ -20,9 +20,10 @@ export const globalErrorHandler = (err, req, res, next) => {
   }
 
   // Erro genérico/desconhecido (Logamos para o desenvolvedor ver)
-  console.error('ERROR:', err);
-  return res.status(500).json({
+  console.error('SERVER ERROR:', err);
+  return res.status(err.statusCode || 500).json({
     status: 'error',
-    message: 'Algo deu muito errado no servidor!'
+    message: err.message || 'Algo deu muito errado no servidor!',
+    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack, details: err })
   });
 };

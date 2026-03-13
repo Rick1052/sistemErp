@@ -20,9 +20,18 @@ export async function createClient(companyId, data) {
     return createWithSequence('client', companyId, data);
 }
 
-export async function getAllClients(companyId) {
+export async function getAllClients(companyId, search) {
+    const where = { companyId };
+
+    if (search) {
+        where.OR = [
+            { name: { contains: search, mode: 'insensitive' } },
+            { document: { contains: search, mode: 'insensitive' } }
+        ];
+    }
+
     return prisma.client.findMany({
-        where: { companyId },
+        where,
         orderBy: { createdAt: "desc" }
     });
 }

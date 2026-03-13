@@ -11,6 +11,13 @@ const sequenceMap = {
     productTax: 'productTaxSeq',
     productInventory: 'inventorySeq',
     stockMovement: 'stockMovementSeq',
+    sale: 'saleSeq',
+    saleItem: 'saleItemSeq',
+    saleStatus: 'saleStatusSeq',
+    bankAccount: 'accountSeq',
+    paymentMethod: 'paymentMethodSeq',
+    financialCategory: 'financialCategorySeq',
+    financialRecord: 'financialRecordSeq',
 };
 
 export async function createWithSequence(model, companyId, data, txExternal = null) {

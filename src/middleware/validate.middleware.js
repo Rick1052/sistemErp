@@ -17,10 +17,7 @@ export function validate(schema) {
         });
       }
 
-      return res.status(500).json({
-        message: "Internal server error",
-       
-      });
+      next(error);
     }
   };
 }

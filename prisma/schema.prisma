@@ -16,6 +16,12 @@ enum Status {
   INACTIVE
 }
 
+enum StockAction {
+  NONE
+  RESERVE
+  COMMIT
+}
+
 enum Role {
   ADMIN
   USER
@@ -33,6 +39,27 @@ enum MovementType {
   BALANCE
   RESERVE
   RELEASE_RESERVE
+}
+
+enum FinancialRecordType {
+  PAYABLE
+  RECEIVABLE
+}
+
+enum FinancialStatus {
+  PENDING
+  PAID
+  CANCELLED
+}
+
+enum TransactionType {
+  CREDIT
+  DEBIT
+}
+
+enum CategoryType {
+  REVENUE
+  EXPENSE
 }
 
 //////////////////////////////////////////////////////
@@ -74,6 +101,13 @@ model Company {
   inventories    ProductInventory[]
   taxes          ProductTax[]
   stockMovements StockMovement[]
+  sales          Sale[]
+  saleStatuses   SaleStatus[]
+
+  bankAccounts        BankAccount[]
+  paymentMethods      PaymentMethod[]
+  financialCategories FinancialCategory[]
+  financialRecords    FinancialRecord[]
 }
 
 model CompanySequence {
@@ -90,6 +124,14 @@ model CompanySequence {
   productTaxSeq    Int @default(0)
   inventorySeq     Int @default(0)
   stockMovementSeq Int @default(0)
+  saleSeq          Int @default(0)
+  saleItemSeq      Int @default(0)
+  saleStatusSeq    Int @default(0)
+
+  accountSeq           Int @default(0)
+  paymentMethodSeq     Int @default(0)
+  financialCategorySeq Int @default(0)
+  financialRecordSeq   Int @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -146,6 +188,8 @@ model Client {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  sales Sale[]
 
   @@unique([companyId, cod])
   @@unique([companyId, document])
@@ -306,8 +350,15 @@ model Product {
   stockMovements StockMovement[]
   tax            ProductTax?
 
+  weight Decimal? @db.Decimal(15, 3)
+  width  Decimal? @db.Decimal(15, 2)
+  height Decimal? @db.Decimal(15, 2)
+  depth  Decimal? @db.Decimal(15, 2)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  saleItems SaleItem[]
 
   @@unique([companyId, cod])
   @@index([companyId])
@@ -325,6 +376,16 @@ model ProductTax {
 
   productId String  @unique
   product   Product @relation(fields: [productId], references: [id])
+
+  origin      String?
+  ncm         String?
+  cest        String?
+  gtin        String?
+  ipiTaxClass String?
+
+  icmsStBase    Decimal? @db.Decimal(15, 2)
+  icmsStAmount  Decimal? @db.Decimal(15, 2)
+  icmsOwnAmount Decimal? @db.Decimal(15, 2)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -391,4 +452,194 @@ model StockMovement {
 
   @@unique([companyId, cod])
   @@index([companyId])
+}
+
+//////////////////////////////////////////////////////
+// SALES (PEDIDOS DE VENDA)
+//////////////////////////////////////////////////////
+
+model Sale {
+  id        String     @id @default(uuid())
+  cod       Int
+  companyId String
+  company   Company    @relation(fields: [companyId], references: [id])
+  clientId  String
+  client    Client     @relation(fields: [clientId], references: [id])
+  status     SaleStatus @relation(fields: [statusId], references: [id])
+  statusId   String
+
+  paymentMethodId String?
+  paymentMethod   PaymentMethod? @relation("SalePaymentMethod", fields: [paymentMethodId], references: [id])
+  subtotal      Decimal @db.Decimal(15, 2)
+  discount      Decimal @default(0) @db.Decimal(15, 2)
+  freight       Decimal @default(0) @db.Decimal(15, 2)
+  total         Decimal @db.Decimal(15, 2)
+
+  items SaleItem[]
+  financialRecords FinancialRecord[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, cod])
+  @@index([companyId])
+}
+
+model SaleItem {
+  id        String  @id @default(uuid())
+  cod       Int
+  companyId String
+  saleId    String
+  sale      Sale    @relation(fields: [saleId], references: [id])
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  quantity  Int
+  unitPrice Decimal @db.Decimal(15, 2)
+  discount  Decimal @default(0) @db.Decimal(15, 2)
+  total     Decimal @db.Decimal(15, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, cod])
+  @@index([companyId])
+  @@index([saleId])
+}
+
+model SaleStatus {
+  id          String      @id @default(uuid())
+  cod         Int
+  companyId   String
+  company     Company     @relation(fields: [companyId], references: [id])
+  name        String
+  color       String
+  stockAction StockAction @default(NONE)
+
+  sales Sale[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+//////////////////////////////////////////////////////
+// FINANCIAL MODULE
+//////////////////////////////////////////////////////
+
+model BankAccount {
+  id             String   @id @default(uuid())
+  cod            Int
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id])
+  name           String
+  initialBalance Decimal  @default(0) @db.Decimal(15, 2)
+  currentBalance Decimal  @default(0) @db.Decimal(15, 2)
+  status         Status   @default(ACTIVE)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  paymentMethods   PaymentMethod[]
+  financialRecords FinancialRecord[]
+  transactions     BankTransaction[]
+
+  @@unique([companyId, cod])
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+model PaymentMethod {
+  id                   String       @id @default(uuid())
+  cod                  Int
+  companyId            String
+  company              Company      @relation(fields: [companyId], references: [id])
+  name                 String
+  destinationAccountId String?
+  destinationAccount   BankAccount? @relation(fields: [destinationAccountId], references: [id])
+  feePercentage        Decimal      @default(0) @db.Decimal(5, 2)
+  isImmediate          Boolean      @default(true)
+  status               Status       @default(ACTIVE)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  financialRecords FinancialRecord[]
+  sales            Sale[]            @relation("SalePaymentMethod")
+
+  @@unique([companyId, cod])
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+model FinancialCategory {
+  id        String       @id @default(uuid())
+  cod       Int
+  companyId String
+  company   Company      @relation(fields: [companyId], references: [id])
+  name      String
+  type      CategoryType
+  status    Status       @default(ACTIVE)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime @updatedAt
+
+  financialRecords FinancialRecord[]
+
+  @@unique([companyId, cod])
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+model FinancialRecord {
+  id           String              @id @default(uuid())
+  cod          Int
+  companyId    String
+  company      Company             @relation(fields: [companyId], references: [id])
+  type         FinancialRecordType
+  description  String
+  amount       Decimal             @db.Decimal(15, 2)
+  dueDate      DateTime
+  paymentDate  DateTime?
+  status       FinancialStatus     @default(PENDING)
+  
+  bankAccountId String?
+  bankAccount   BankAccount?       @relation(fields: [bankAccountId], references: [id])
+  
+  paymentMethodId String?
+  paymentMethod   PaymentMethod?   @relation(fields: [paymentMethodId], references: [id])
+  
+  categoryId String?
+  category   FinancialCategory? @relation(fields: [categoryId], references: [id])
+  
+  saleId String?
+  sale   Sale? @relation(fields: [saleId], references: [id])
+  
+  purchaseId String? 
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions BankTransaction[]
+
+  @@unique([companyId, cod])
+  @@index([companyId])
+  @@index([saleId])
+  @@index([status])
+}
+
+model BankTransaction {
+  id                String          @id @default(uuid())
+  companyId         String
+  bankAccountId     String
+  bankAccount       BankAccount     @relation(fields: [bankAccountId], references: [id])
+  financialRecordId String?
+  financialRecord   FinancialRecord? @relation(fields: [financialRecordId], references: [id])
+  type              TransactionType
+  amount            Decimal         @db.Decimal(15, 2)
+  date              DateTime        @default(now())
+  description       String
+  balanceAfter      Decimal         @db.Decimal(15, 2)
+
+  @@index([bankAccountId])
+  @@index([date])
 }

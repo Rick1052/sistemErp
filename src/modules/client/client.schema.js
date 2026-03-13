@@ -18,7 +18,7 @@ export const createClientSchema = z.object({
   ie: z.string().max(20, "Inscrição Estadual muito longa").optional(),
   
   // CORREÇÃO: z.int() substituído por z.number().int()
-  indicatorIE: z.number().int("O indicador IE deve ser um número inteiro").optional(),
+  indicatorIE: z.coerce.number().int("O indicador IE deve ser um número inteiro").optional(),
 
   email: z.string()
     .email("Email inválido"),
