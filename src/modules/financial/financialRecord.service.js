@@ -6,12 +6,12 @@ export const financialRecordService = {
   async list(companyId, filters = {}) {
     const { type, status, startDate, endDate, categoryId, bankAccountId } = filters;
     const where = { companyId };
-    
+
     if (type) where.type = type;
     if (status) where.status = status;
     if (categoryId) where.categoryId = categoryId;
     if (bankAccountId) where.bankAccountId = bankAccountId;
-    
+
     if (startDate || endDate) {
       where.dueDate = {};
       if (startDate) where.dueDate.gte = new Date(startDate);
@@ -45,7 +45,12 @@ export const financialRecordService = {
   },
 
   async create(companyId, data, tx = null) {
-    return createWithSequence('financialRecord', companyId, data, tx);
+    try {
+      return await createWithSequence('financialRecord', companyId, data, tx);
+    } catch (error) {
+      console.error('ERRO AO CRIAR LANÇAMENTO FINANCEIRO:', error);
+      throw error;
+    }
   },
 
   /**
@@ -54,7 +59,7 @@ export const financialRecordService = {
   async createAndPay(companyId, data, txExternal = null) {
     const execute = async (tx) => {
       const { bankAccountId, amount, type, description, paymentMethodId, categoryId, saleId, purchaseId } = data;
-      
+
       if (!bankAccountId) throw new AppError('Conta bancária é obrigatória para pagamentos imediatos', 400);
 
       const pDate = new Date();
@@ -110,7 +115,7 @@ export const financialRecordService = {
   async update(companyId, id, data) {
     const record = await this.getById(companyId, id);
     if (record.status === 'PAID') {
-        throw new AppError('Não é possível editar um título já pago. Estorne o pagamento primeiro.', 400);
+      throw new AppError('Não é possível editar um título já pago. Estorne o pagamento primeiro.', 400);
     }
     return prisma.financialRecord.update({
       where: { id },
@@ -180,7 +185,7 @@ export const financialRecordService = {
   async cancel(companyId, id) {
     const record = await this.getById(companyId, id);
     if (record.status === 'PAID') {
-        throw new AppError('Não é possível cancelar um título já pago. Estorne o pagamento primeiro.', 400);
+      throw new AppError('Não é possível cancelar um título já pago. Estorne o pagamento primeiro.', 400);
     }
     return prisma.financialRecord.update({
       where: { id },
@@ -191,7 +196,7 @@ export const financialRecordService = {
   async delete(companyId, id) {
     const record = await this.getById(companyId, id);
     if (record.status === 'PAID') {
-        throw new AppError('Não é possível excluir um título já pago. Estorne o pagamento primeiro.', 400);
+      throw new AppError('Não é possível excluir um título já pago. Estorne o pagamento primeiro.', 400);
     }
     return prisma.financialRecord.delete({
       where: { id },

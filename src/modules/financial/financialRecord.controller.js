@@ -13,7 +13,20 @@ export const financialRecordController = {
   }),
 
   create: asyncHandler(async (req, res) => {
-    const record = await financialRecordService.create(req.companyId, req.body);
+    const { dueDate, amount, ...rest } = req.body;
+
+    const data = {
+      ...rest,
+      amount: Number(amount || 0),
+      dueDate: dueDate ? new Date(dueDate) : new Date()
+    };
+
+    // Validar se a data é válida
+    if (isNaN(data.dueDate.getTime())) {
+      data.dueDate = new Date(); // Fallback para hoje caso o formato venha errado
+    }
+
+    const record = await financialRecordService.create(req.companyId, data);
     res.status(201).json(record);
   }),
 

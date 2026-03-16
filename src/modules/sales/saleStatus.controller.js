@@ -1,66 +1,37 @@
 import { saleStatusService } from './saleStatus.service.js';
+import { asyncHandler } from '../../utils/asyncHandler.js';
 
 export const saleStatusController = {
-  async list(req, res, next) {
-    try {
-      const { companyId } = req.user;
-      const statuses = await saleStatusService.list(companyId);
-      res.json(statuses);
-    } catch (error) {
-      next(error);
-    }
-  },
+  list: asyncHandler(async (req, res) => {
+    const statuses = await saleStatusService.list(req.companyId);
+    res.json(statuses);
+  }),
 
-  async getById(req, res, next) {
-    try {
-      const { companyId } = req.user;
-      const { id } = req.params;
-      const status = await saleStatusService.getById(companyId, id);
-      res.json(status);
-    } catch (error) {
-      next(error);
-    }
-  },
+  getById: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const status = await saleStatusService.getById(req.companyId, id);
+    res.json(status);
+  }),
 
-  async create(req, res, next) {
-    try {
-      const { companyId } = req.user;
-      const status = await saleStatusService.create(companyId, req.body);
-      res.status(201).json(status);
-    } catch (error) {
-      next(error);
-    }
-  },
+  create: asyncHandler(async (req, res) => {
+    const status = await saleStatusService.create(req.companyId, req.body);
+    res.status(201).json(status);
+  }),
 
-  async update(req, res, next) {
-    try {
-      const { companyId } = req.user;
-      const { id } = req.params;
-      const status = await saleStatusService.update(companyId, id, req.body);
-      res.json(status);
-    } catch (error) {
-      next(error);
-    }
-  },
+  update: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const status = await saleStatusService.update(req.companyId, id, req.body);
+    res.json(status);
+  }),
 
-  async delete(req, res, next) {
-    try {
-      const { companyId } = req.user;
-      const { id } = req.params;
-      await saleStatusService.delete(companyId, id);
-      res.status(204).send();
-    } catch (error) {
-      next(error);
-    }
-  },
+  delete: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    await saleStatusService.delete(req.companyId, id);
+    res.status(204).send();
+  }),
 
-  async seed(req, res, next) {
-    try {
-      const { companyId } = req.user;
-      await saleStatusService.seedDefaults(companyId);
-      res.status(201).json({ message: 'Status padrões criados com sucesso' });
-    } catch (error) {
-      next(error);
-    }
-  }
+  seed: asyncHandler(async (req, res) => {
+    await saleStatusService.seedDefaults(req.companyId);
+    res.status(201).json({ message: 'Status padrões criados com sucesso' });
+  })
 };
