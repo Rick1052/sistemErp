@@ -46,11 +46,17 @@ export const financeIntegrationService = {
         ? `${description} (${index + 1}/${installmentsData.length})`
         : description;
 
+      const amount = Number(inst.amount);
+      if (isNaN(amount) || amount <= 0) {
+        console.error(`[financeIntegrationService] Valor da parcela inválido (${inst.amount}). Pulando.`);
+        continue;
+      }
+
       const recordData = {
         type: 'RECEIVABLE',
         description: instDescription,
-        amount: Number(inst.amount),
-        dueDate: new Date(inst.dueDate),
+        amount: amount,
+        dueDate: inst.dueDate ? new Date(inst.dueDate) : new Date(),
         paymentMethodId: inst.paymentMethodId,
         saleId: sale.id,
         bankAccountId: paymentMethod?.destinationAccountId,

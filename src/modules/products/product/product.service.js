@@ -35,7 +35,7 @@ export async function createProduct(companyId, tagIds, productData) {
             where: { id: product.id },
             include: { tags: true, category: true, brand: true }
         });
-    });
+    }, { timeout: 30000 });
 }
 
 export async function getAllProducts(companyId) {

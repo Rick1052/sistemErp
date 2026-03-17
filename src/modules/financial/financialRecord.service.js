@@ -109,7 +109,7 @@ export const financialRecordService = {
       return record;
     };
 
-    return txExternal ? execute(txExternal) : prisma.$transaction(execute);
+    return txExternal ? execute(txExternal) : prisma.$transaction(execute, { timeout: 30000 });
   },
 
   async update(companyId, id, data) {
@@ -179,7 +179,7 @@ export const financialRecordService = {
       });
 
       return updatedRecord;
-    });
+    }, { timeout: 30000 });
   },
 
   async cancel(companyId, id) {

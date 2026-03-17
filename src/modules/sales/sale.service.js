@@ -101,17 +101,18 @@ export const saleService = {
             total: itemTotal,
           }, tx);
 
-          await this._applyStockAction(tx, companyId, userId, sale, item, saleStatus.stockAction);
+          await saleService._applyStockAction(tx, companyId, userId, sale, item, saleStatus.stockAction);
         }
 
         // 4. Generate financial record if status is COMMIT
         if (saleStatus.stockAction === 'COMMIT') {
-          const detailedSale = await this.getById(companyId, sale.id, tx);
+          console.log(`[saleService.create] Gerando financeiro para venda recém-criada ${sale.id}`);
+          const detailedSale = await saleService.getById(companyId, sale.id, tx);
           await financeIntegrationService.generateReceivableFromSale(companyId, detailedSale, installments, tx);
         }
 
-        return this.getById(companyId, sale.id, tx);
-      });
+        return saleService.getById(companyId, sale.id, tx);
+      }, { timeout: 30000 });
     } catch (error) {
       console.error('ERRO CRÍTICO NA CRIAÇÃO DE VENDA:', error);
       throw error;
@@ -131,7 +132,7 @@ export const saleService = {
 
         // 1. Rollback old stock actions
         for (const item of oldSale.items) {
-          await this._rollbackStockAction(tx, companyId, userId, oldSale, item, oldSale.status.stockAction);
+          await saleService._rollbackStockAction(tx, companyId, userId, oldSale, item, oldSale.status.stockAction);
         }
 
         // 2. Delete old items
@@ -185,14 +186,12 @@ export const saleService = {
             total: itemTotal,
           }, tx);
 
-          await this._applyStockAction(tx, companyId, userId, updatedSale, item, newStatus.stockAction);
+          await saleService._applyStockAction(tx, companyId, userId, updatedSale, item, newStatus.stockAction);
         }
 
-        // 7. Generate financial record if status is COMMIT and it wasn't COMMIT before (simplified: always check if it's currently COMMIT)
-        // Note: In a more robust system, we would check if it was already generated to avoid duplicates.
-        // For now, let's assume if it is COMMIT, we ensure a record exists or create one.
+        // 7. Generate financial record if status is COMMIT and it wasn't COMMIT before
         if (newStatus.stockAction === 'COMMIT') {
-          const detailedSale = await this.getById(companyId, updatedSale.id, tx);
+          const detailedSale = await saleService.getById(companyId, updatedSale.id, tx);
           // Check if already has a record to avoid duplicates on edits
           const existingRecord = await tx.financialRecord.findFirst({ where: { saleId: id } });
           if (!existingRecord) {
@@ -200,8 +199,8 @@ export const saleService = {
           }
         }
 
-        return this.getById(companyId, updatedSale.id, tx);
-      });
+        return saleService.getById(companyId, updatedSale.id, tx);
+      }, { timeout: 30000 });
     } catch (error) {
       console.error('ERRO CRÍTICO NA EDIÇÃO DE VENDA:', error);
       throw error;
@@ -224,7 +223,7 @@ export const saleService = {
 
         // Rollback stock actions (RESERVE)
         for (const item of sale.items) {
-          await this._rollbackStockAction(tx, companyId, userId, sale, item, sale.status.stockAction);
+          await saleService._rollbackStockAction(tx, companyId, userId, sale, item, sale.status.stockAction);
         }
 
         // Delete items and sale
@@ -232,7 +231,7 @@ export const saleService = {
         await tx.sale.delete({ where: { id } });
 
         return { message: 'Venda excluída com sucesso' };
-      });
+      }, { timeout: 30000 });
     } catch (error) {
       console.error('ERRO CRÍTICO NA EXCLUSÃO DE VENDA:', error);
       throw error;
@@ -316,7 +315,7 @@ export const saleService = {
 
   async updateStatus(companyId, userId, id, statusId, installments = []) {
     try {
-      console.log(`[saleService.updateStatus] Iniciando atualização de status da venda ${id} para ${statusId}`);
+      console.log(`[saleService.updateStatus] >>> INICIO UPDATE STATUS: Venda=${id}, NovoStatus=${statusId}`);
 
       return await prisma.$transaction(async (tx) => {
         const sale = await tx.sale.findFirst({
@@ -324,30 +323,51 @@ export const saleService = {
           include: { items: true, status: true }
         });
 
-        if (!sale) throw new AppError('Venda não encontrada', 404);
-        if (sale.statusId === statusId) return sale;
+        if (!sale) {
+          console.error(`[saleService.updateStatus] Venda ${id} não encontrada para a empresa ${companyId}`);
+          throw new AppError('Venda não encontrada', 404);
+        }
+
+        if (sale.statusId === statusId) {
+          console.log(`[saleService.updateStatus] Status já é o mesmo (${statusId}). Retornando.`);
+          return sale;
+        }
 
         const oldStatus = sale.status;
         const newStatus = await tx.saleStatus.findFirst({
           where: { id: statusId, companyId }
         });
-        if (!newStatus) throw new AppError('Novo status não encontrado', 404);
 
-        console.log(`[saleService.updateStatus] Transição: ${oldStatus.name} (${oldStatus.stockAction}) -> ${newStatus.name} (${newStatus.stockAction})`);
+        if (!newStatus) {
+          console.error(`[saleService.updateStatus] Novo status ${statusId} não encontrado`);
+          throw new AppError('Novo status não encontrado', 404);
+        }
+
+        console.log(`[saleService.updateStatus] Transição de estoque: ${oldStatus.stockAction} -> ${newStatus.stockAction}`);
 
         // 1. Reverter ação de estoque ANTIGA
-        for (const item of sale.items) {
-          if (oldStatus.stockAction === 'COMMIT') {
-            throw new AppError(`Não é permitido alterar status de um pedido já '${oldStatus.name}' (baixado).`, 400);
+        if (sale.items && sale.items.length > 0) {
+          console.log(`[saleService.updateStatus] Revertendo estoque para ${sale.items.length} itens (Ação: ${oldStatus.stockAction})`);
+          for (const item of sale.items) {
+            if (oldStatus.stockAction === 'COMMIT') {
+              console.error(`[saleService.updateStatus] Tentativa de reverter status COMMIT na venda ${id}`);
+              throw new AppError(`Não é permitido alterar status de um pedido já '${oldStatus.name}' (baixado).`, 400);
+            }
+            await saleService._rollbackStockAction(tx, companyId, userId, sale, item, oldStatus.stockAction);
           }
-          await this._rollbackStockAction(tx, companyId, userId, sale, item, oldStatus.stockAction);
         }
 
         // 2. Aplicar ação de estoque NOVA
-        for (const item of sale.items) {
-          await this._applyStockAction(tx, companyId, userId, sale, item, newStatus.stockAction);
+        if (sale.items && sale.items.length > 0) {
+          console.log(`[saleService.updateStatus] Aplicando novo estoque para ${sale.items.length} itens (Ação: ${newStatus.stockAction})`);
+          for (const item of sale.items) {
+            await saleService._applyStockAction(tx, companyId, userId, sale, item, newStatus.stockAction);
+          }
+        } else {
+          console.warn(`[saleService.updateStatus] Venda ${id} não possui itens para movimentar estoque.`);
         }
 
+        console.log(`[saleService.updateStatus] Atualizando status no banco de dados...`);
         const updatedSale = await tx.sale.update({
           where: { id },
           data: { statusId },
@@ -356,23 +376,30 @@ export const saleService = {
 
         // 3. Gerar registro financeiro se o novo status for COMMIT
         if (newStatus.stockAction === 'COMMIT') {
-          // Evitar duplicidade: verificar se já existe financeiro para esta venda
+          console.log(`[saleService.updateStatus] Novo status é COMMIT. Verificando financeiro...`);
           const existingFinancial = await tx.financialRecord.findFirst({
             where: { saleId: id, companyId }
           });
 
           if (!existingFinancial) {
-            console.log(`[saleService.updateStatus] Gerando financeiro para a venda ${id}`);
+            console.log(`[saleService.updateStatus] Criando novo financeiro para venda ${id}`);
             await financeIntegrationService.generateReceivableFromSale(companyId, updatedSale, installments, tx);
           } else {
-            console.log(`[saleService.updateStatus] Venda ${id} já possui registro financeiro. Pulando geração.`);
+            console.log(`[saleService.updateStatus] Venda ${id} já possui financeiro. Ignorando.`);
           }
         }
 
+        console.log(`[saleService.updateStatus] <<< FIM UPDATE STATUS: Sucesso`);
         return updatedSale;
+      }, {
+        timeout: 30000 // Aumentando timeout para 30s em transações complexas
       });
     } catch (error) {
       console.error('ERRO CRÍTICO NO UPDATE STATUS DE VENDA:', error);
+      // Se não for AppError, vira 500. Vamos garantir que a mensagem do erro original seja preservada
+      if (!(error instanceof AppError)) {
+        console.error('Stack trace do erro não operacional:', error.stack);
+      }
       throw error;
     }
   }

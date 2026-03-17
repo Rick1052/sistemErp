@@ -3,9 +3,9 @@ import { z } from 'zod';
 export const createInventorySchema = z.object({
     productId: z.string().uuid("ID do produto inválido"),
     warehouseId: z.string().uuid("ID do depósito inválido"),
-    quantity: z.number().int().nonnegative("A quantidade não pode ser negativa").default(0),
-    minStock: z.number().int().nonnegative().optional(),
-    maxStock: z.number().int().nonnegative().optional(),
+    quantity: z.coerce.number().default(0),
+    minStock: z.coerce.number().optional().nullable().or(z.literal('')),
+    maxStock: z.coerce.number().optional().nullable().or(z.literal('')),
 });
 
 // Na atualização, normalmente só alteramos mínimos e máximos via CRUD.

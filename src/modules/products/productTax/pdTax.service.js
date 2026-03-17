@@ -3,21 +3,27 @@ import { AppError } from '../../../utils/AppError.js';
 import { createWithSequence } from "../../../utils/createWithSequence.js";
 
 export async function createTax(companyId, data) {
+    const { productId, ...taxData } = data;
 
     const product = await prisma.product.findFirst({
-        where: { id: data.productId, companyId }
+        where: { id: productId, companyId }
     });
 
-    if (!product)
-        throw new AppError('Produto não encontrado', 404);
+    if (!product) throw new AppError('Produto não encontrado', 404);
 
     const existing = await prisma.productTax.findFirst({
-        where: { productId: data.productId, companyId }
+        where: { productId, companyId }
     });
 
-    if (existing)
-        throw new AppError('Este produto já possui imposto', 409);
+    if (existing) {
+        console.log(`[taxService] Registro já existe para o produto ${productId}. Atualizando...`);
+        return prisma.productTax.update({
+            where: { id: existing.id },
+            data: taxData
+        });
+    }
 
+    console.log(`[taxService] Criando novo registro tributário para produto ${productId}`);
     return createWithSequence('productTax', companyId, data);
 }
 
