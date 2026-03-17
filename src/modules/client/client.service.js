@@ -20,20 +20,37 @@ export async function createClient(companyId, data) {
     return createWithSequence('client', companyId, data);
 }
 
-export async function getAllClients(companyId, search) {
+export async function getAllClients(companyId, { search, page = 1, limit = 10 } = {}) {
+    const skip = (page - 1) * limit;
     const where = { companyId };
 
     if (search) {
         where.OR = [
             { name: { contains: search, mode: 'insensitive' } },
-            { document: { contains: search, mode: 'insensitive' } }
+            { document: { contains: search, mode: 'insensitive' } },
+            { email: { contains: search, mode: 'insensitive' } }
         ];
     }
 
-    return prisma.client.findMany({
-        where,
-        orderBy: { createdAt: "desc" }
-    });
+    const [total, clients] = await Promise.all([
+        prisma.client.count({ where }),
+        prisma.client.findMany({
+            where,
+            orderBy: { createdAt: "desc" },
+            skip,
+            take: limit
+        }),
+    ]);
+
+    return {
+        clients,
+        meta: {
+            total,
+            page,
+            limit,
+            totalPages: Math.ceil(total / limit)
+        }
+    };
 }
 
 export async function getClientById(companyId, id) {
@@ -41,7 +58,6 @@ export async function getClientById(companyId, id) {
         where: { id, companyId }
     });
 
-    // 404: Not Found
     if (!client) {
         throw new AppError('Cliente não encontrado', 404);
     }
@@ -50,7 +66,6 @@ export async function getClientById(companyId, id) {
 }
 
 export async function updateClient(companyId, id, data) {
-    // Primeiro garantimos que o cliente existe e pertence à empresa
     await getClientById(companyId, id);
 
     if (!data || Object.keys(data).length === 0) {
@@ -64,7 +79,6 @@ export async function updateClient(companyId, id, data) {
 }
 
 export async function deleteClient(companyId, id) {
-    // Verifica existência antes de deletar para evitar erro 500 do Prisma
     await getClientById(companyId, id);
 
     return prisma.client.delete({

@@ -1,4 +1,5 @@
 import prisma from '../database/prisma.js';
+import logger from './logger.js';
 
 const sequenceMap = {
     client: 'clientSeq',
@@ -23,10 +24,11 @@ const sequenceMap = {
 export async function createWithSequence(model, companyId, data, txExternal = null) {
 
     const run = async (tx) => {
-        console.log(`[createWithSequence] Criando record para model: ${model}, companyId: ${companyId}`);
+        logger.info(`[createWithSequence] Iniciando criação: ${model} (Empr.: ${companyId})`);
+
         const sequenceField = sequenceMap[model];
         if (!sequenceField) {
-            console.error(`[createWithSequence] Sequência NÃO CONFIGURADA para model: ${model}`);
+            logger.error(`[createWithSequence] Sequência NÃO CONFIGURADA para model: ${model}`);
             throw new Error(`Sequência não configurada para model: ${model}`);
         }
 
@@ -43,7 +45,7 @@ export async function createWithSequence(model, companyId, data, txExternal = nu
             });
 
             const nextCod = sequence[sequenceField];
-            console.log(`[createWithSequence] Proximo cod gerado para ${model}: ${nextCod}`);
+            logger.info(`[createWithSequence] Cod gerado para ${model}: ${nextCod}`);
 
             const created = await tx[model].create({
                 data: {
@@ -52,10 +54,13 @@ export async function createWithSequence(model, companyId, data, txExternal = nu
                     companyId
                 }
             });
-            console.log(`[createWithSequence] Record criado com sucesso: ${model} ID: ${created.id}`);
+            logger.info(`[createWithSequence] Sucesso: ${model} ID: ${created.id}`);
             return created;
         } catch (error) {
-            console.error(`[createWithSequence] ERRO AO CRIAR ${model}:`, error);
+            logger.error({
+                msg: `[createWithSequence] ERRO AO CRIAR ${model}`,
+                error: error.message
+            });
             throw error;
         }
     };

@@ -1,29 +1,52 @@
 import { AppError } from '../utils/AppError.js';
+import logger from '../utils/logger.js';
+import { ZodError } from 'zod';
 
 export const globalErrorHandler = (err, req, res, next) => {
-  err.statusCode = err.statusCode || 500;
+  const statusCode = err.statusCode || 500;
 
-  // Se for um erro que criamos (AppError)
+  // Log non-operational errors
+  if (!err.isOperational && statusCode === 500) {
+    logger.error({
+      msg: 'Unexpected Error',
+      error: err.message,
+      stack: err.stack,
+      path: req.path,
+      method: req.method
+    });
+  }
+
+  // Zod Validation Errors
+  if (err instanceof ZodError) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Erro de validação',
+      errors: err.flatten().fieldErrors
+    });
+  }
+
+  // Handle Prisma Unique Constraint
+  if (err.code === 'P2002') {
+    return res.status(400).json({
+      status: 'error',
+      message: `Já existe um registro com este valor: ${err.meta?.target || 'campo único'}`
+    });
+  }
+
+  // AppError (Operational)
   if (err.isOperational) {
-    return res.status(err.statusCode).json({
+    return res.status(statusCode).json({
       status: 'error',
       message: err.message
     });
   }
 
-  // Tratamento especial para erros do Prisma (ex: Unique Constraint)
-  if (err.code === 'P2002') {
-    return res.status(400).json({
-      status: 'error',
-      message: `Campo duplicado: ${err.meta.target}`
-    });
-  }
-
-  // Erro genérico/desconhecido (Logamos para o desenvolvedor ver)
-  console.error('SERVER ERROR:', err);
-  return res.status(err.statusCode || 500).json({
+  // Generic Error
+  return res.status(statusCode).json({
     status: 'error',
-    message: err.message || 'Algo deu muito errado no servidor!',
-    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack, details: err })
+    message: process.env.NODE_ENV === 'production'
+      ? 'Ocorreu um erro interno no servidor'
+      : err.message || 'Erro inesperado',
+    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
   });
 };

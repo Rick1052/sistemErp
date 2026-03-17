@@ -1,37 +1,43 @@
-import { 
-    createClient, 
-    getAllClients, 
-    getClientById, 
-    deleteClient,
-    updateClient,
-    deleteManyClient
+import {
+  createClient,
+  getAllClients,
+  getClientById,
+  deleteClient,
+  updateClient,
+  deleteManyClient
 } from "./client.service.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 
 export const createController = asyncHandler(async (req, res) => {
-    const client = await createClient(req.companyId, req.validatedBody);
-    return res.status(201).json(client);
+  const client = await createClient(req.companyId, req.validatedBody);
+  return res.status(201).json(client);
 });
 
 export const listController = asyncHandler(async (req, res) => {
-    const { search } = req.query;
-    const clients = await getAllClients(req.companyId, search);
-    return res.status(200).json(clients);
+  const { search, page, limit } = req.query;
+
+  const result = await getAllClients(req.companyId, {
+    search,
+    page: page ? parseInt(page) : undefined,
+    limit: limit ? parseInt(limit) : undefined
+  });
+
+  return res.status(200).json(result);
 });
 
 export const getByIdController = asyncHandler(async (req, res) => {
-    const client = await getClientById(req.companyId, req.params.id);
-    return res.status(200).json(client);
+  const client = await getClientById(req.companyId, req.params.id);
+  return res.status(200).json(client);
 });
 
 export const updateController = asyncHandler(async (req, res) => {
-    const client = await updateClient(req.companyId, req.params.id, req.validatedBody);
-    return res.status(200).json(client);
+  const client = await updateClient(req.companyId, req.params.id, req.validatedBody);
+  return res.status(200).json(client);
 });
 
 export const deleteControler = asyncHandler(async (req, res) => {
-    await deleteClient(req.companyId, req.params.id);
-    return res.status(200).json({ message: "Cliente removido com sucesso" });
+  await deleteClient(req.companyId, req.params.id);
+  return res.status(200).json({ message: "Cliente removido com sucesso" });
 });
 
 export const deleteManyController = asyncHandler(async (req, res) => {

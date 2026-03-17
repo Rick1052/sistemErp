@@ -7,8 +7,13 @@ export const createController = asyncHandler(async (req, res) => {
 });
 
 export const getAllController = asyncHandler(async (req, res) => {
-    const suppliers = await getAllSupplier(req.companyId);
-    res.status(200).json(suppliers);
+    const { search, page, limit } = req.query;
+    const result = await getAllSupplier(req.companyId, {
+        search,
+        page: page ? parseInt(page) : undefined,
+        limit: limit ? parseInt(limit) : undefined
+    });
+    res.status(200).json(result);
 });
 
 export const getByIdController = asyncHandler(async (req, res) => {

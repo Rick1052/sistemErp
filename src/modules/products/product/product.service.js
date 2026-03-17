@@ -3,10 +3,6 @@ import { AppError } from "../../../utils/AppError.js";
 import { createWithSequence } from "../../../utils/createWithSequence.js";
 
 export async function createProduct(companyId, tagIds, productData) {
-
-    if (!productData.description)
-        throw new AppError("A descrição do produto é obrigatória", 400);
-
     const existing = await prisma.product.findFirst({
         where: {
             description: productData.description,
@@ -18,7 +14,6 @@ export async function createProduct(companyId, tagIds, productData) {
         throw new AppError("Já existe produto com essa descrição", 409);
 
     return prisma.$transaction(async (tx) => {
-
         const product = await createWithSequence(
             'product',
             companyId,
@@ -38,12 +33,40 @@ export async function createProduct(companyId, tagIds, productData) {
     }, { timeout: 30000 });
 }
 
-export async function getAllProducts(companyId) {
-    return prisma.product.findMany({
-        where: { companyId },
-        include: { category: true, brand: true }, // Facilita a vida do frontend na listagem
-        orderBy: { createdAt: 'desc' }
-    });
+export async function getAllProducts(companyId, { search, page = 1, limit = 10 } = {}) {
+    const skip = (page - 1) * limit;
+    const where = { companyId };
+
+    if (search) {
+        where.OR = [
+            { description: { contains: search, mode: 'insensitive' } },
+            { code: { contains: search, mode: 'insensitive' } }
+        ];
+    }
+
+    const [total, products] = await Promise.all([
+        prisma.product.count({ where }),
+        prisma.product.findMany({
+            where,
+            include: {
+                category: { select: { id: true, name: true } },
+                brand: { select: { id: true, name: true } }
+            },
+            orderBy: { createdAt: 'desc' },
+            skip,
+            take: limit,
+        }),
+    ]);
+
+    return {
+        products,
+        meta: {
+            total,
+            page,
+            limit,
+            totalPages: Math.ceil(total / limit),
+        }
+    };
 }
 
 export async function getProductById(companyId, id) {
@@ -53,7 +76,7 @@ export async function getProductById(companyId, id) {
             tags: true,
             category: true,
             brand: true,
-            supplier: true // Trazendo o fornecedor também
+            supplier: true
         }
     });
 
@@ -62,10 +85,8 @@ export async function getProductById(companyId, id) {
 }
 
 export async function updateProduct(companyId, id, productData, tagIds) {
-    // Valida existência chamando a função acima
     const existing = await getProductById(companyId, id);
 
-    // Validação de duplicidade ao renomear
     if (productData.description && productData.description !== existing.description) {
         const duplicate = await prisma.product.findFirst({
             where: {
@@ -90,7 +111,7 @@ export async function updateProduct(companyId, id, productData, tagIds) {
 }
 
 export async function deleteProduct(companyId, id) {
-    await getProductById(companyId, id); // Valida se existe e se é da empresa
+    await getProductById(companyId, id);
 
     return prisma.product.delete({
         where: { id }

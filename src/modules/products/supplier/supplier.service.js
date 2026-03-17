@@ -10,11 +10,38 @@ export async function createSupplier(companyId, data) {
     return createWithSequence('supplier', companyId, data);
 }
 
-export async function getAllSupplier(companyId) {
-    return prisma.supplier.findMany({
-        where: { companyId },
-        orderBy: { name: 'asc' } // Geralmente fornecedores são listados por nome
-    });
+export async function getAllSupplier(companyId, { search, page = 1, limit = 10 } = {}) {
+    const skip = (page - 1) * limit;
+    const where = { companyId };
+
+    if (search) {
+        where.OR = [
+            { name: { contains: search, mode: 'insensitive' } },
+            { document: { contains: search, mode: 'insensitive' } }
+        ];
+    }
+
+    const [total, suppliers] = await Promise.all([
+        prisma.supplier.count({ where }),
+        prisma.supplier.findMany({
+            where,
+            orderBy: { name: 'asc' },
+            skip: page ? skip : undefined,
+            take: limit ? limit : undefined
+        }),
+    ]);
+
+    // If no pagination was requested (page/limit undefined), we could return the array directly
+    // but for consistency with other modules, we return the object.
+    return {
+        suppliers,
+        meta: {
+            total,
+            page,
+            limit,
+            totalPages: Math.ceil(total / limit)
+        }
+    };
 }
 
 export async function getSupplierById(companyId, id) {
@@ -30,7 +57,6 @@ export async function getSupplierById(companyId, id) {
 }
 
 export async function updateSupplier(companyId, id, data) {
-    // Valida se existe e pertence à empresa antes de atualizar
     await getSupplierById(companyId, id);
 
     if (!data || Object.keys(data).length === 0) {
@@ -44,11 +70,7 @@ export async function updateSupplier(companyId, id, data) {
 }
 
 export async function deleteSupplier(companyId, id) {
-    // Valida existência
     await getSupplierById(companyId, id);
-
-    // Bônus: Poderíamos checar aqui se o fornecedor tem produtos vinculados 
-    // antes de permitir a exclusão (Integridade Referencial)
 
     return prisma.supplier.delete({
         where: { id }
