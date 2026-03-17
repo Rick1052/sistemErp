@@ -10,8 +10,11 @@ export const financeIntegrationService = {
     const description = `Venda #${sale.cod} - Cliente: ${sale.client?.name || 'Não Identificado'}`;
     const records = [];
 
+    console.log(`[financeIntegrationService] Gerando financeiro para venda #${sale.cod}. Total: ${sale.total}. Parcelas fornecidas: ${installmentsData.length}`);
+
     // Se não vierem parcelas no array, mas houver um paymentMethodId na venda, criamos uma parcela única
     if ((!installmentsData || installmentsData.length === 0) && sale.paymentMethodId) {
+      console.log(`[financeIntegrationService] Nenhuma parcela fornecida. Usando método de pagamento da venda: ${sale.paymentMethodId}`);
       installmentsData = [{
         paymentMethodId: sale.paymentMethodId,
         amount: Number(sale.total),
@@ -19,13 +22,28 @@ export const financeIntegrationService = {
       }];
     }
 
+    if (installmentsData.length === 0) {
+      console.warn(`[financeIntegrationService] Nenhuma parcela e nenhum método de pagamento na venda #${sale.cod}. Nenhum registro financeiro será gerado.`);
+      return [];
+    }
+
     for (const [index, inst] of installmentsData.entries()) {
+      if (!inst.paymentMethodId) {
+        console.error(`[financeIntegrationService] Parcela ${index + 1} sem paymentMethodId. Pulando.`);
+        continue;
+      }
+
       const paymentMethod = await client.paymentMethod.findUnique({
         where: { id: inst.paymentMethodId }
       });
 
-      const instDescription = installmentsData.length > 1 
-        ? `${description} (${index + 1}/${installmentsData.length})` 
+      if (!paymentMethod) {
+        console.error(`[financeIntegrationService] Método de pagamento ${inst.paymentMethodId} não encontrado.`);
+        continue;
+      }
+
+      const instDescription = installmentsData.length > 1
+        ? `${description} (${index + 1}/${installmentsData.length})`
         : description;
 
       const recordData = {
@@ -37,6 +55,8 @@ export const financeIntegrationService = {
         saleId: sale.id,
         bankAccountId: paymentMethod?.destinationAccountId,
       };
+
+      console.log(`[financeIntegrationService] Criando registro: ${instDescription}, Valor: ${recordData.amount}, Imediato: ${paymentMethod?.isImmediate}`);
 
       if (paymentMethod?.isImmediate) {
         const record = await financialRecordService.createAndPay(companyId, recordData, client);
@@ -59,7 +79,7 @@ export const financeIntegrationService = {
   async generatePayableFromPurchase(companyId, purchase) {
     // Lógica similar para compras, mas com tipo PAYABLE
     const description = `Compra #${purchase.cod} - Fornecedor: ${purchase.supplier?.name || 'Não Identificado'}`;
-    
+
     // Simplificado para pendente por enquanto
     const data = {
       type: 'PAYABLE',

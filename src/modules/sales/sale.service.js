@@ -91,7 +91,7 @@ export const saleService = {
         // 3. Create items and handle stock action
         for (const item of items) {
           const itemTotal = (item.unitPrice - (item.discount || 0)) * item.quantity;
-          
+
           await createWithSequence('saleItem', companyId, {
             saleId: sale.id,
             productId: item.productId,
@@ -175,7 +175,7 @@ export const saleService = {
         // 6. Create new items and apply new stock actions
         for (const item of items) {
           const itemTotal = (item.unitPrice - (item.discount || 0)) * item.quantity;
-          
+
           await createWithSequence('saleItem', companyId, {
             saleId: updatedSale.id,
             productId: item.productId,
@@ -310,12 +310,14 @@ export const saleService = {
     // But for EDIT flow, we might need a more complex logic if changing FROM commit.
     // However, the rule says "Block DELETE if COMMIT". Let's assume EDIT also blocks if COMMIT for now to be safe.
     if (action === 'COMMIT') {
-        throw new AppError('Não é possível editar ou excluir um pedido já faturado/com estoque baixado.', 400);
+      throw new AppError('Não é possível editar ou excluir um pedido já faturado/com estoque baixado.', 400);
     }
   },
 
   async updateStatus(companyId, userId, id, statusId, installments = []) {
     try {
+      console.log(`[saleService.updateStatus] Iniciando atualização de status da venda ${id} para ${statusId}`);
+
       return await prisma.$transaction(async (tx) => {
         const sale = await tx.sale.findFirst({
           where: { id, companyId },
@@ -327,49 +329,23 @@ export const saleService = {
 
         const oldStatus = sale.status;
         const newStatus = await tx.saleStatus.findFirst({
-            where: { id: statusId, companyId }
+          where: { id: statusId, companyId }
         });
         if (!newStatus) throw new AppError('Novo status não encontrado', 404);
 
-        // Reverse OLD action
+        console.log(`[saleService.updateStatus] Transição: ${oldStatus.name} (${oldStatus.stockAction}) -> ${newStatus.name} (${newStatus.stockAction})`);
+
+        // 1. Reverter ação de estoque ANTIGA
         for (const item of sale.items) {
-           // SPECIAL CASE: transitioning FROM COMMIT usually isn't allowed without manual reversal
-           if (oldStatus.stockAction === 'COMMIT') {
-               throw new AppError(`Não é permitido alterar status de um pedido já '${oldStatus.name}' (baixado).`, 400);
-           }
-           await this._rollbackStockAction(tx, companyId, userId, sale, item, oldStatus.stockAction);
+          if (oldStatus.stockAction === 'COMMIT') {
+            throw new AppError(`Não é permitido alterar status de um pedido já '${oldStatus.name}' (baixado).`, 400);
+          }
+          await this._rollbackStockAction(tx, companyId, userId, sale, item, oldStatus.stockAction);
         }
 
-        // Apply NEW action
+        // 2. Aplicar ação de estoque NOVA
         for (const item of sale.items) {
-            // SPECIAL CASE: If going to COMMIT, we need to handle if it was RESERVE before
-            if (newStatus.stockAction === 'COMMIT') {
-                await tx.product.update({
-                    where: { id: item.productId },
-                    data: {
-                      physicalStock: { decrement: item.quantity },
-                      // If it was RESERVE, it was already handled by rollback above (which decremented reserved)
-                      // No, wait. Rollback of RESERVE decrements reserved. 
-                      // If we go from RESERVE to COMMIT:
-                      // 1. Rollback(RESERVE) -> reserved--
-                      // 2. Apply(COMMIT) -> physical--
-                      // This is CORRECT.
-                    }
-                  });
-
-                  const warehouse = await tx.warehouse.findFirst({ where: { companyId } });
-                  await createWithSequence('stockMovement', companyId, {
-                    productId: item.productId,
-                    userId,
-                    type: 'OUT',
-                    quantity: item.quantity,
-                    reason: `Venda Pedido ${sale.cod}`,
-                    documentRef: String(sale.cod),
-                    warehouseId: warehouse.id
-                  }, tx);
-            } else {
-                await this._applyStockAction(tx, companyId, userId, sale, item, newStatus.stockAction);
-            }
+          await this._applyStockAction(tx, companyId, userId, sale, item, newStatus.stockAction);
         }
 
         const updatedSale = await tx.sale.update({
@@ -378,9 +354,19 @@ export const saleService = {
           include: { items: true, client: true, financialRecords: true }
         });
 
-        // 3. Generate financial record if new status is COMMIT
+        // 3. Gerar registro financeiro se o novo status for COMMIT
         if (newStatus.stockAction === 'COMMIT') {
+          // Evitar duplicidade: verificar se já existe financeiro para esta venda
+          const existingFinancial = await tx.financialRecord.findFirst({
+            where: { saleId: id, companyId }
+          });
+
+          if (!existingFinancial) {
+            console.log(`[saleService.updateStatus] Gerando financeiro para a venda ${id}`);
             await financeIntegrationService.generateReceivableFromSale(companyId, updatedSale, installments, tx);
+          } else {
+            console.log(`[saleService.updateStatus] Venda ${id} já possui registro financeiro. Pulando geração.`);
+          }
         }
 
         return updatedSale;
