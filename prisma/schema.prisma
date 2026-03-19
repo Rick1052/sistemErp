@@ -581,6 +581,12 @@ model FinancialCategory {
   name      String
   type      CategoryType
   status    Status       @default(ACTIVE)
+
+  parentId    String?
+  parent      FinancialCategory?  @relation("FinancialCategoryHierarchy", fields: [parentId], references: [id])
+  children    FinancialCategory[] @relation("FinancialCategoryHierarchy")
+  isSelectable Boolean             @default(true)
+
   createdAt DateTime     @default(now())
   updatedAt DateTime @updatedAt
 

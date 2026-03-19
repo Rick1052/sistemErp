@@ -7,6 +7,11 @@ export const financialCategoryController = {
     res.json(categories);
   }),
 
+  getTree: asyncHandler(async (req, res) => {
+    const tree = await financialCategoryService.getTree(req.companyId);
+    res.json(tree);
+  }),
+
   getById: asyncHandler(async (req, res) => {
     const category = await financialCategoryService.getById(req.companyId, req.params.id);
     res.json(category);

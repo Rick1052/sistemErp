@@ -20,6 +20,7 @@ import productInventory from './modules/products/productInventory/pdInventory.ro
 import productTax from './modules/products/productTax/pdTax.routes.js'
 import stockMovement from './modules/products/stockMovement/stockMovement.routes.js'
 import financialRoutes from './modules/financial/financial.routes.js'
+import reportRoutes from './modules/financial/report.routes.js'
 
 import { globalErrorHandler } from './middleware/error.middleware.js'
 
@@ -70,6 +71,7 @@ app.use('/api/products/products-inventory', productInventory)
 app.use('/api/products/product-tax', productTax)
 app.use('/api/products/stock-movement', stockMovement)
 app.use('/api/financial', financialRoutes)
+app.use('/api/reports', reportRoutes)
 
 // Router Error
 app.use(globalErrorHandler)

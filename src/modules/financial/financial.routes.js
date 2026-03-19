@@ -27,6 +27,7 @@ router.delete('/payment-methods/:id', paymentMethodController.delete);
 // Categorias Financeiras
 import { financialCategoryController } from './financialCategory.controller.js';
 router.get('/categories', financialCategoryController.list);
+router.get('/categories/tree', financialCategoryController.getTree);
 router.get('/categories/:id', financialCategoryController.getById);
 router.post('/categories', financialCategoryController.create);
 router.put('/categories/:id', financialCategoryController.update);
