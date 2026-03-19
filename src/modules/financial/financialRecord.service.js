@@ -13,9 +13,9 @@ export const financialRecordService = {
     if (bankAccountId) where.bankAccountId = bankAccountId;
 
     if (startDate || endDate) {
-      where.dueDate = {};
-      if (startDate) where.dueDate.gte = new Date(startDate);
-      if (endDate) where.dueDate.lte = new Date(endDate);
+      where.date = {};
+      if (startDate) where.date.gte = new Date(startDate);
+      if (endDate) where.date.lte = new Date(endDate);
     }
 
     return prisma.financialRecord.findMany({
@@ -26,7 +26,7 @@ export const financialRecordService = {
         category: true,
         sale: { select: { cod: true } }
       },
-      orderBy: { dueDate: 'asc' },
+      orderBy: { date: 'desc' },
     });
   },
 
@@ -58,17 +58,18 @@ export const financialRecordService = {
    */
   async createAndPay(companyId, data, txExternal = null) {
     const execute = async (tx) => {
-      const { bankAccountId, amount, type, description, paymentMethodId, categoryId, saleId, purchaseId } = data;
+      const { bankAccountId, amount, type, description, paymentMethodId, categoryId, saleId, purchaseId, date } = data;
 
       if (!bankAccountId) throw new AppError('Conta bancária é obrigatória para pagamentos imediatos', 400);
 
-      const pDate = new Date();
+      const pDate = date ? new Date(date) : new Date();
 
       // 1. Criar o Título como PAID
       const record = await this.create(companyId, {
         type,
         description,
         amount,
+        date: pDate,
         dueDate: pDate,
         paymentDate: pDate,
         status: 'PAID',

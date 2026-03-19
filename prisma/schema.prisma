@@ -476,6 +476,7 @@ model Sale {
   items SaleItem[]
   financialRecords FinancialRecord[]
 
+  date      DateTime @default(now())
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -616,6 +617,7 @@ model FinancialRecord {
   
   purchaseId String? 
   
+  date      DateTime @default(now())
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

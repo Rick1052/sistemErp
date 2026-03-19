@@ -16,13 +16,20 @@ export const createController = asyncHandler(async (req, res) => {
 export const listController = asyncHandler(async (req, res) => {
   const { search, page, limit } = req.query;
 
+  const parsedPage = parseInt(page) || 1;
+  const parsedLimit = parseInt(limit) || 10;
+
   const result = await getAllClients(req.companyId, {
-    search,
-    page: page ? parseInt(page) : undefined,
-    limit: limit ? parseInt(limit) : undefined
+    search: search ? String(search) : undefined,
+    page: parsedPage > 0 ? parsedPage : 1,
+    limit: parsedLimit > 0 ? parsedLimit : 10
   });
 
-  return res.status(200).json(result);
+  // Ensure result has the expected properties
+  return res.status(200).json({
+    clients: result.clients || [],
+    meta: result.meta || { total: 0, page: parsedPage, limit: parsedLimit, totalPages: 0 }
+  });
 });
 
 export const getByIdController = asyncHandler(async (req, res) => {

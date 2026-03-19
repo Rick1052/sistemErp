@@ -5,18 +5,25 @@ import { financeIntegrationService } from "../financial/financeIntegration.servi
 import logger from '../../utils/logger.js';
 
 export const saleService = {
-  async list(companyId, { page = 1, limit = 10 }) {
+  async list(companyId, { page = 1, limit = 10, startDate, endDate }) {
     const skip = (page - 1) * limit;
+    const where = { companyId };
+
+    if (startDate || endDate) {
+      where.date = {};
+      if (startDate) where.date.gte = new Date(startDate);
+      if (endDate) where.date.lte = new Date(endDate);
+    }
 
     const [total, sales] = await Promise.all([
-      prisma.sale.count({ where: { companyId } }),
+      prisma.sale.count({ where }),
       prisma.sale.findMany({
-        where: { companyId },
+        where,
         include: {
           client: { select: { id: true, name: true, document: true } },
           status: true,
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { date: 'desc' },
         skip,
         take: limit,
       }),

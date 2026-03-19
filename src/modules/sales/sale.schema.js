@@ -4,6 +4,7 @@ export const createSaleSchema = z.object({
   clientId: z.string().uuid(),
   statusId: z.string().uuid(),
   paymentMethodId: z.string().uuid().optional(),
+  date: z.coerce.date().optional(),
   discount: z.coerce.number().min(0).optional().default(0),
   freight: z.coerce.number().min(0).optional().default(0),
   installments: z.array(z.object({

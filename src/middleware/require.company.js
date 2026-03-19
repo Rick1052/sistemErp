@@ -18,18 +18,26 @@ export async function requireCompany(req, res, next) {
     });
 
     if (!relation) {
+      logger.warn(`Acesso negado: Usuário ${req.user.id} tentou acessar empresa ${req.companyId} sem permissão`);
       return res.status(403).json({
-        message: 'Usuário não pertence a esta empresa'
+        message: 'Usuário não pertence a esta empresa ou empresa inválida'
       });
     }
 
     req.userRole = relation.role;
-
     next();
   } catch (error) {
+    logger.error({
+      msg: 'Erro ao validar empresa no Middleware',
+      error: error.message,
+      code: error.code,
+      userId: req.user?.id,
+      companyId: req.companyId
+    });
+
     return res.status(500).json({
-      message: 'Erro ao validar empresa',
-      error: error.message
+      message: 'Erro interno ao validar dados da empresa',
+      error: process.env.NODE_ENV === 'production' ? undefined : error.message
     });
   }
 }

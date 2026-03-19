@@ -11,21 +11,27 @@ export const createController = asyncHandler(async (req, res) => {
 export const getAllController = asyncHandler(async (req, res) => {
     const { search, page, limit } = req.query;
 
+    const parsedPage = parseInt(page) || 1;
+    const parsedLimit = parseInt(limit) || 10;
+
     const result = await getAllProducts(req.companyId, {
-        search,
-        page: page ? parseInt(page) : undefined,
-        limit: limit ? parseInt(limit) : undefined
+        search: search ? String(search) : undefined,
+        page: parsedPage > 0 ? parsedPage : 1,
+        limit: parsedLimit > 0 ? parsedLimit : 10
     });
 
+    // Fallback if results.products is undefined
+    const products = result.products || [];
+
     // Inject dynamic availableStock property
-    const productsWithAvailableStock = result.products.map(product => ({
+    const productsWithAvailableStock = products.map(product => ({
         ...product,
-        availableStock: (product.physicalStock || 0) - (product.reservedStock || 0)
+        availableStock: (Number(product.physicalStock) || 0) - (Number(product.reservedStock) || 0)
     }));
 
     res.status(200).json({
         products: productsWithAvailableStock,
-        meta: result.meta
+        meta: result.meta || {}
     });
 });
 

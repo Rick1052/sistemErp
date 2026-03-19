@@ -58,6 +58,7 @@ export const financeIntegrationService = {
         description: instDescription,
         amount: amount,
         dueDate: inst.dueDate ? new Date(inst.dueDate) : new Date(),
+        date: sale.date || new Date(), // Herdar data da venda
         paymentMethodId: inst.paymentMethodId,
         saleId: sale.id,
         bankAccountId: paymentMethod?.destinationAccountId,

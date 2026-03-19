@@ -8,12 +8,20 @@ export const createController = asyncHandler(async (req, res) => {
 
 export const getAllController = asyncHandler(async (req, res) => {
     const { search, page, limit } = req.query;
+
+    const parsedPage = parseInt(page) || 1;
+    const parsedLimit = parseInt(limit) || 10;
+
     const result = await getAllSupplier(req.companyId, {
-        search,
-        page: page ? parseInt(page) : undefined,
-        limit: limit ? parseInt(limit) : undefined
+        search: search ? String(search) : undefined,
+        page: parsedPage > 0 ? parsedPage : 1,
+        limit: parsedLimit > 0 ? parsedLimit : 10
     });
-    res.status(200).json(result);
+    
+    res.status(200).json({
+        suppliers: result.suppliers || [],
+        meta: result.meta || { total: 0, page: parsedPage, limit: parsedLimit, totalPages: 0 }
+    });
 });
 
 export const getByIdController = asyncHandler(async (req, res) => {
