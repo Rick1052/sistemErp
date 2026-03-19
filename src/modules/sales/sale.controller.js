@@ -4,10 +4,16 @@ import { asyncHandler } from '../../utils/asyncHandler.js';
 export const saleController = {
   list: asyncHandler(async (req, res) => {
     const { companyId } = req;
-    const { page, limit } = req.query;
+    const { page, limit, startDate, endDate } = req.query;
+    
+    const parsedPage = parseInt(page) || 1;
+    const parsedLimit = parseInt(limit) || 10;
+
     const result = await saleService.list(companyId, {
-      page: Number(page) || 1,
-      limit: Number(limit) || 10
+      page: parsedPage > 0 ? parsedPage : 1,
+      limit: parsedLimit > 0 ? parsedLimit : 10,
+      startDate,
+      endDate
     });
     return res.json(result);
   }),
@@ -22,7 +28,19 @@ export const saleController = {
   create: asyncHandler(async (req, res) => {
     const { companyId } = req;
     const { id: userId } = req.user;
-    const sale = await saleService.create(companyId, userId, req.body);
+    const { date, ...rest } = req.body;
+
+    const formattedData = {
+      ...rest,
+      date: date ? new Date(date) : new Date()
+    };
+
+    // Validar se a data é válida
+    if (isNaN(formattedData.date.getTime())) {
+      formattedData.date = new Date();
+    }
+
+    const sale = await saleService.create(companyId, userId, formattedData);
     return res.status(201).json(sale);
   }),
 
@@ -30,7 +48,19 @@ export const saleController = {
     const { companyId } = req;
     const { id: userId } = req.user;
     const { id } = req.params;
-    const sale = await saleService.update(companyId, userId, id, req.body);
+    const { date, ...rest } = req.body;
+
+    const formattedData = {
+      ...rest,
+      date: date ? new Date(date) : new Date()
+    };
+
+    // Validar se a data é válida
+    if (isNaN(formattedData.date.getTime())) {
+      formattedData.date = new Date();
+    }
+
+    const sale = await saleService.update(companyId, userId, id, formattedData);
     return res.json(sale);
   }),
 
