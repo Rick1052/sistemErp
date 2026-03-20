@@ -220,13 +220,16 @@ export const saleService = {
       return await prisma.$transaction(async (tx) => {
         const sale = await tx.sale.findFirst({
           where: { id, companyId },
-          include: { items: true, status: true }
+          include: { items: true, status: true, financialRecords: true }
         });
         if (!sale) throw new AppError('Venda não encontrada', 404);
 
-        // Block if COMMIT
-        if (sale.status.stockAction === 'COMMIT') {
-          throw new AppError('Não é possível excluir um pedido já faturado. Faça uma nota de devolução', 400);
+        // Regra de Negócio: Exclusão de Vendas
+        const statusName = sale.status.name.toUpperCase();
+        const allowedStatuses = ['OPEN', 'DRAFT', 'EM ABERTO', 'RASCUNHO', 'CANCELADO', 'CANCELED', 'CANCELADA'];
+        
+        if (!allowedStatuses.includes(statusName) || (sale.financialRecords && sale.financialRecords.length > 0)) {
+          throw new AppError("Não é possível excluir um pedido processado. Altere a situação para 'Em Aberto' ou 'Cancelado' para estornar os lançamentos antes de excluir.", 400);
         }
 
         // Rollback stock actions (RESERVE)
@@ -291,7 +294,7 @@ export const saleService = {
     }
   },
 
-  async _rollbackStockAction(tx, companyId, userId, sale, item, action) {
+  async _rollbackStockAction(tx, companyId, userId, sale, item, action, allowCommitRollback = false) {
     if (action === 'NONE') return;
 
     const warehouse = await tx.warehouse.findFirst({ where: { companyId } });
@@ -313,11 +316,26 @@ export const saleService = {
         warehouseId: warehouse.id
       }, tx);
     }
-    // COMMIT rollback is generally NOT allowed via DELETE/EDIT in simple flows (should use returns)
-    // But for EDIT flow, we might need a more complex logic if changing FROM commit.
-    // However, the rule says "Block DELETE if COMMIT". Let's assume EDIT also blocks if COMMIT for now to be safe.
+    
     if (action === 'COMMIT') {
-      throw new AppError('Não é possível editar ou excluir um pedido já faturado/com estoque baixado.', 400);
+      if (!allowCommitRollback) {
+        throw new AppError('Não é possível editar ou excluir um pedido já faturado/com estoque baixado.', 400);
+      }
+      
+      await tx.product.update({
+        where: { id: item.productId },
+        data: { physicalStock: { increment: item.quantity } }
+      });
+
+      await createWithSequence('stockMovement', companyId, {
+        productId: item.productId,
+        userId,
+        type: 'IN',
+        quantity: item.quantity,
+        reason: `Estorno Venda Pedido ${sale.cod}`,
+        documentRef: String(sale.cod),
+        warehouseId: warehouse.id
+      }, tx);
     }
   },
 
@@ -353,15 +371,29 @@ export const saleService = {
 
         logger.info(`[saleService.updateStatus] Transição de estoque: ${oldStatus.stockAction} -> ${newStatus.stockAction}`);
 
+        const newStatusName = newStatus.name.toUpperCase();
+        const isReopening = ['OPEN', 'DRAFT', 'EM ABERTO', 'RASCUNHO', 'CANCELADO', 'CANCELED', 'CANCELADA'].includes(newStatusName);
+
+        if (isReopening) {
+          const financialRecords = await tx.financialRecord.findMany({ where: { saleId: id } });
+          const hasPaid = financialRecords.some(r => r.status === 'PAID');
+          if (hasPaid) {
+            throw new AppError("Existe um recebimento já liquidado para este pedido. Estorne o pagamento no módulo financeiro antes de reabrir ou cancelar o pedido.", 400);
+          }
+          if (financialRecords.length > 0) {
+            await tx.financialRecord.deleteMany({ where: { saleId: id, status: 'PENDING' } });
+          }
+        }
+
         // 1. Reverter ação de estoque ANTIGA
         if (sale.items && sale.items.length > 0) {
           logger.info(`[saleService.updateStatus] Revertendo estoque para ${sale.items.length} itens (Ação: ${oldStatus.stockAction})`);
           for (const item of sale.items) {
-            if (oldStatus.stockAction === 'COMMIT') {
+            if (oldStatus.stockAction === 'COMMIT' && !isReopening) {
               logger.error(`[saleService.updateStatus] Tentativa de reverter status COMMIT na venda ${id}`);
-              throw new AppError(`Não é permitido alterar status de um pedido já '${oldStatus.name}' (baixado).`, 400);
+              throw new AppError(`Não é permitido alterar status de um pedido já '${oldStatus.name}' (baixado) sem ser para reabertura ('Em Aberto') ou cancelamento.`, 400);
             }
-            await saleService._rollbackStockAction(tx, companyId, userId, sale, item, oldStatus.stockAction);
+            await saleService._rollbackStockAction(tx, companyId, userId, sale, item, oldStatus.stockAction, isReopening);
           }
         }
 
