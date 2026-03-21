@@ -13,7 +13,7 @@ export const financialRecordController = {
   }),
 
   create: asyncHandler(async (req, res) => {
-    const { dueDate, amount, date, ...rest } = req.body;
+    const { dueDate, amount, date, chequeNumber, chequeOwner, chequeDueDate, chequeCustomerId, ...rest } = req.body;
 
     const data = {
       ...rest,
@@ -30,12 +30,43 @@ export const financialRecordController = {
       data.date = new Date();
     }
 
+    if (chequeNumber) {
+      if (!chequeOwner || !chequeDueDate) {
+        return res.status(400).json({ error: 'Para registrar um cheque, é obrigatório informar o titular impresso (chequeOwner) e a data "bom para" (chequeDueDate).' });
+      }
+      data.chequeNumber = chequeNumber;
+      data.chequeOwner = chequeOwner;
+      data.chequeDueDate = new Date(chequeDueDate);
+      if (isNaN(data.chequeDueDate.getTime())) {
+        return res.status(400).json({ error: 'A data do cheque (chequeDueDate) é inválida.' });
+      }
+      if (chequeCustomerId) {
+        data.chequeCustomerId = chequeCustomerId;
+      }
+    }
+
     const record = await financialRecordService.create(req.companyId, data);
     res.status(201).json(record);
   }),
 
   update: asyncHandler(async (req, res) => {
-    const record = await financialRecordService.update(req.companyId, req.params.id, req.body);
+    const data = { ...req.body };
+
+    if (data.chequeNumber) {
+      if (!data.chequeOwner || !data.chequeDueDate) {
+        return res.status(400).json({ error: 'Para atualizar ou manter um cheque, informe o titular (chequeOwner) e a data "bom para" (chequeDueDate).' });
+      }
+      data.chequeDueDate = new Date(data.chequeDueDate);
+      if (isNaN(data.chequeDueDate.getTime())) {
+        return res.status(400).json({ error: 'A data do cheque (chequeDueDate) é inválida.' });
+      }
+    } else if (data.chequeNumber === null) {
+      data.chequeOwner = null;
+      data.chequeDueDate = null;
+      data.chequeCustomerId = null;
+    }
+
+    const record = await financialRecordService.update(req.companyId, req.params.id, data);
     res.json(record);
   }),
 

@@ -188,6 +188,7 @@ model Client {
   updatedAt DateTime @updatedAt
 
   sales Sale[]
+  cheques FinancialRecord[] @relation("ChequeCustomer")
 
   @@unique([companyId, cod])
   @@unique([companyId, document])
@@ -622,6 +623,13 @@ model FinancialRecord {
   sale   Sale? @relation(fields: [saleId], references: [id])
   
   purchaseId String? 
+
+  // Cheque fields
+  chequeNumber     String?
+  chequeOwner      String?
+  chequeDueDate    DateTime?
+  chequeCustomerId String?
+  chequeCustomer   Client? @relation("ChequeCustomer", fields: [chequeCustomerId], references: [id])
   
   date      DateTime @default(now())
   createdAt DateTime @default(now())

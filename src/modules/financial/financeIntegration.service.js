@@ -62,6 +62,10 @@ export const financeIntegrationService = {
         paymentMethodId: inst.paymentMethodId,
         saleId: sale.id,
         bankAccountId: paymentMethod?.destinationAccountId,
+        chequeNumber: inst.chequeNumber || null,
+        chequeOwner: inst.chequeOwner || null,
+        chequeDueDate: inst.chequeDueDate ? new Date(inst.chequeDueDate) : null,
+        chequeCustomerId: inst.chequeCustomerId || null
       };
 
       logger.info(`[financeIntegrationService] Criando lançamento: ${instDescription}, R$ ${recordData.amount}`);
