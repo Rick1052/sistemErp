@@ -13,14 +13,24 @@ export const financialRecordController = {
   }),
 
   create: asyncHandler(async (req, res) => {
-    const { dueDate, amount, date, chequeNumber, chequeOwner, chequeDueDate, chequeCustomerId, ...rest } = req.body;
+    const { dueDate, amount, date, chequeNumber, chequeOwner, chequeDueDate, chequeCustomerId, clientId, supplierId, type, ...rest } = req.body;
 
     const data = {
       ...rest,
+      type,
       amount: Number(amount || 0),
       dueDate: dueDate ? new Date(dueDate) : new Date(),
       date: date ? new Date(date) : new Date()
     };
+
+    // Regra de Cliente vs Fornecedor
+    if (type === 'RECEIVABLE') {
+      data.clientId = clientId || null;
+      data.supplierId = null;
+    } else if (type === 'PAYABLE') {
+      data.supplierId = supplierId || null;
+      data.clientId = null;
+    }
 
     // Validar se as datas são válidas
     if (isNaN(data.dueDate.getTime())) {
@@ -51,6 +61,15 @@ export const financialRecordController = {
 
   update: asyncHandler(async (req, res) => {
     const data = { ...req.body };
+
+    // Regra de Cliente vs Fornecedor
+    if (data.type === 'RECEIVABLE') {
+      data.supplierId = null;
+      if (data.clientId !== undefined) data.clientId = data.clientId || null;
+    } else if (data.type === 'PAYABLE') {
+      data.clientId = null;
+      if (data.supplierId !== undefined) data.supplierId = data.supplierId || null;
+    }
 
     if (data.chequeNumber) {
       if (!data.chequeOwner || !data.chequeDueDate) {

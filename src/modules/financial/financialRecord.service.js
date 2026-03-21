@@ -24,7 +24,9 @@ export const financialRecordService = {
         bankAccount: true,
         paymentMethod: true,
         category: true,
-        sale: { select: { cod: true } }
+        sale: { select: { cod: true } },
+        client: true,
+        supplier: true
       },
       orderBy: { date: 'desc' },
     });
@@ -38,6 +40,8 @@ export const financialRecordService = {
         paymentMethod: true,
         category: true,
         transactions: true,
+        client: true,
+        supplier: true
       },
     });
     if (!record) throw new AppError('Título financeiro não encontrado', 404);

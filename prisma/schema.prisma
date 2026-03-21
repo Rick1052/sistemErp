@@ -189,6 +189,7 @@ model Client {
 
   sales Sale[]
   cheques FinancialRecord[] @relation("ChequeCustomer")
+  financialRecords FinancialRecord[] @relation("FinancialClient")
 
   @@unique([companyId, cod])
   @@unique([companyId, document])
@@ -211,6 +212,7 @@ model Supplier {
   phone    String?
 
   products Product[]
+  financialRecords FinancialRecord[] @relation("FinancialSupplier")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -467,8 +469,6 @@ model Sale {
   status     SaleStatus @relation(fields: [statusId], references: [id])
   statusId   String
 
-  paymentMethodId String?
-  paymentMethod   PaymentMethod? @relation("SalePaymentMethod", fields: [paymentMethodId], references: [id])
   subtotal      Decimal @db.Decimal(15, 2)
   discount      Decimal @default(0) @db.Decimal(15, 2)
   freight       Decimal @default(0) @db.Decimal(15, 2)
@@ -560,14 +560,11 @@ model PaymentMethod {
   destinationAccount   BankAccount? @relation(fields: [destinationAccountId], references: [id])
   feePercentage        Decimal      @default(0) @db.Decimal(5, 2)
   isImmediate          Boolean      @default(true)
-  installments         Int          @default(1)
-  installmentInterval  Int          @default(30)
   status               Status       @default(ACTIVE)
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
 
   financialRecords FinancialRecord[]
-  sales            Sale[]            @relation("SalePaymentMethod")
 
   @@unique([companyId, cod])
   @@unique([companyId, name])
@@ -623,6 +620,11 @@ model FinancialRecord {
   sale   Sale? @relation(fields: [saleId], references: [id])
   
   purchaseId String? 
+
+  clientId String?
+  client   Client? @relation("FinancialClient", fields: [clientId], references: [id])
+  supplierId String?
+  supplier   Supplier? @relation("FinancialSupplier", fields: [supplierId], references: [id])
 
   // Cheque fields
   chequeNumber     String?
