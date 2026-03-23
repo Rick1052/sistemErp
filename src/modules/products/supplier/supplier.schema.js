@@ -16,7 +16,8 @@ export const createSupplierSchema = z.object({
     .string()
     .trim()
     .email("Formato de email inválido")
-    .refine(v => v.includes('@marim'), { message: 'O e-mail deve conter @marim' }),
+    .or(z.literal(''))
+    .nullish(),
 
   phone: z
     .string()

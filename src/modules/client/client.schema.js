@@ -22,7 +22,8 @@ export const createClientSchema = z.object({
 
   email: z.string()
     .email("Email inválido")
-    .refine(v => v.includes('@marim'), { message: 'O e-mail deve conter @marim' }),
+    .or(z.literal(''))
+    .nullish(),
 
   phone: z.string()
     .min(8, "Telefone inválido")
