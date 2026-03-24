@@ -10,6 +10,7 @@ router.use(authMiddleware, requireCompany);
 
 router.get('/', userController.listMembers);
 router.post('/', userController.addMember);
+router.put('/:id', userController.updateMember);
 router.delete('/:id', userController.removeMember);
 
 export default router;

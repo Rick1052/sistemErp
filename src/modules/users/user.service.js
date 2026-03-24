@@ -84,5 +84,46 @@ export const userService = {
                 }
             }
         });
+    },
+
+    async updateMember(companyId, userId, { name, email, role, password }) {
+        // 1. Atualizar dados do usuário (se fornecidos)
+        const userData = {};
+        if (name) userData.name = name;
+        if (email) userData.email = email;
+        if (password) userData.password = await bcrypt.hash(password, 10);
+
+        if (Object.keys(userData).length > 0) {
+            await prisma.user.update({
+                where: { id: userId },
+                data: userData
+            });
+        }
+
+        // 2. Atualizar role na empresa
+        if (role) {
+            await prisma.userCompany.update({
+                where: {
+                    userId_companyId: {
+                        userId,
+                        companyId
+                    }
+                },
+                data: { role }
+            });
+        }
+
+        return prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                userCompanies: {
+                    where: { companyId },
+                    select: { role: true }
+                }
+            }
+        });
     }
 };

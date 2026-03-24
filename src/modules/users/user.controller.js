@@ -43,5 +43,17 @@ export const userController = {
 
         await userService.removeMember(req.companyId, id);
         res.status(204).send();
+    }),
+
+    updateMember: asyncHandler(async (req, res) => {
+        if (req.userRole !== 'ADMIN') {
+            throw new AppError('Acesso restrito a administradores', 403);
+        }
+
+        const { id } = req.params;
+        const { name, email, role, password } = req.body;
+
+        const member = await userService.updateMember(req.companyId, id, { name, email, role, password });
+        res.json(member);
     })
 };
