@@ -48,7 +48,7 @@ export const financeIntegrationService = {
         : description;
 
       const amount = Number(inst.amount);
-      if (isNaN(amount) || amount <= 0) {
+      if (isNaN(amount)) {
         logger.error(`[financeIntegrationService] Valor da parcela inválido (${inst.amount}). Pulando.`);
         continue;
       }

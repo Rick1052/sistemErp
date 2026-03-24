@@ -5,18 +5,18 @@ export const createSaleSchema = z.object({
   statusId: z.string().uuid(),
   paymentMethodId: z.string().uuid().optional(),
   date: z.coerce.date().optional(),
-  discount: z.coerce.number().min(0).optional().default(0),
-  freight: z.coerce.number().min(0).optional().default(0),
+  discount: z.coerce.number().optional().default(0),
+  freight: z.coerce.number().optional().default(0),
   installments: z.array(z.object({
     paymentMethodId: z.string().uuid(),
-    amount: z.coerce.number().positive(),
+    amount: z.coerce.number(),
     dueDate: z.string().or(z.date()),
   })).optional(),
   items: z.array(z.object({
     productId: z.string().uuid(),
     quantity: z.coerce.number().int().positive(),
-    unitPrice: z.coerce.number().min(0),
-    discount: z.coerce.number().min(0).optional().default(0),
+    unitPrice: z.coerce.number(),
+    discount: z.coerce.number().optional().default(0),
   })).min(1, 'O pedido deve ter pelo menos um item'),
 });
 
