@@ -21,7 +21,13 @@ export const paymentMethodService = {
   },
 
   async create(companyId, data) {
-    return createWithSequence('paymentMethod', companyId, data);
+    console.log('[paymentMethodService.create] DEBUG:', { companyId, data });
+    try {
+      return await createWithSequence('paymentMethod', companyId, data);
+    } catch (err) {
+      console.error('[paymentMethodService.create] ERROR:', err);
+      throw err;
+    }
   },
 
   async update(companyId, id, data) {
