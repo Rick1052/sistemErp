@@ -129,7 +129,16 @@ export const financialRecordService = {
   },
 
   async pay(companyId, id, paymentData) {
-    const { bankAccountId, paymentDate, amountPaid } = paymentData;
+    const { 
+      bankAccountId, 
+      paymentDate, 
+      amountPaid, 
+      paymentMethodId,
+      chequeNumber,
+      chequeOwner,
+      chequeDueDate,
+      chequeCustomerId
+    } = paymentData;
 
     return prisma.$transaction(async (tx) => {
       const record = await tx.financialRecord.findFirst({
@@ -140,7 +149,7 @@ export const financialRecordService = {
       if (record.status === 'PAID') throw new AppError('Título já está pago', 400);
       if (record.status === 'CANCELLED') throw new AppError('Título está cancelado', 400);
 
-      const amountToUse = amountPaid || record.amount;
+      const amountToUse = amountPaid ?? record.amount;
       const pDate = paymentDate ? new Date(paymentDate) : new Date();
 
       // 1. Atualizar o Título
@@ -150,7 +159,12 @@ export const financialRecordService = {
           status: 'PAID',
           bankAccountId,
           paymentDate: pDate,
-          amount: amountToUse, // Caso o valor pago seja diferente do original (parcial não implementado aqui por simplicidade, assume liquidação total)
+          amount: amountToUse,
+          paymentMethodId: paymentMethodId || record.paymentMethodId,
+          chequeNumber: chequeNumber || record.chequeNumber,
+          chequeOwner: chequeOwner || record.chequeOwner,
+          chequeDueDate: chequeDueDate ? new Date(chequeDueDate) : record.chequeDueDate,
+          chequeCustomerId: chequeCustomerId || record.chequeCustomerId,
         },
       });
 

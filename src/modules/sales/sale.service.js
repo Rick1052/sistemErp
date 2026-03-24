@@ -122,7 +122,14 @@ export const saleService = {
         return saleService.getById(companyId, sale.id, tx);
       }, { timeout: 30000 });
     } catch (error) {
-      logger.error('ERRO CRÍTICO NA CRIAÇÃO DE VENDA:', error);
+      logger.error({
+        msg: 'ERRO CRÍTICO NA CRIAÇÃO DE VENDA',
+        error: error.message,
+        code: error.code,
+        stack: error.stack,
+        companyId,
+        userId
+      });
       throw error;
     }
   },
@@ -210,7 +217,15 @@ export const saleService = {
         return saleService.getById(companyId, updatedSale.id, tx);
       }, { timeout: 30000 });
     } catch (error) {
-      logger.error('ERRO CRÍTICO NA EDIÇÃO DE VENDA:', error);
+      logger.error({
+        msg: 'ERRO CRÍTICO NA EDIÇÃO DE VENDA',
+        error: error.message,
+        code: error.code,
+        stack: error.stack,
+        id,
+        companyId,
+        userId
+      });
       throw error;
     }
   },
@@ -431,7 +446,16 @@ export const saleService = {
         timeout: 30000 // Aumentando timeout para 30s em transações complexas
       });
     } catch (error) {
-      logger.error('ERRO CRÍTICO NO UPDATE STATUS DE VENDA:', error);
+      logger.error({
+        msg: 'ERRO CRÍTICO NO UPDATE STATUS DE VENDA',
+        error: error.message,
+        code: error.code,
+        stack: error.stack,
+        id,
+        statusId,
+        companyId,
+        userId
+      });
       throw error;
     }
   }
