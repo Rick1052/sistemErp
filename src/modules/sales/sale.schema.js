@@ -24,6 +24,11 @@ export const createSaleSchema = z.object({
     unitPrice: robustNumber(),
     discount: robustNumber().optional().default(0),
   })).min(1, 'O pedido deve ter pelo menos um item'),
+  // Campos de cheque (passados para o financeiro, mas não salvos na Venda)
+  chequeNumber: z.string().optional(),
+  chequeOwner: z.string().optional(),
+  chequeDueDate: z.coerce.date().optional().or(z.string().optional()),
+  chequeCustomerId: z.string().uuid().optional(),
 });
 
 export const updateSaleStatusSchema = z.object({

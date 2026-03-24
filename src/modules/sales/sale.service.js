@@ -66,6 +66,7 @@ export const saleService = {
       freight = 0, 
       statusId, 
       installments = [], 
+      paymentMethodId, // Remover da criação da venda
       chequeNumber,
       chequeOwner,
       chequeDueDate,
@@ -160,6 +161,7 @@ export const saleService = {
       freight = 0, 
       statusId, 
       installments = [], 
+      paymentMethodId, // Remover da atualização da venda
       chequeNumber,
       chequeOwner,
       chequeDueDate,
