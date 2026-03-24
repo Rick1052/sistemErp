@@ -64,7 +64,8 @@ export async function login({ email, password, companyId }) {
         id: user.id,
         name: user.name,
         email: user.email,
-        companyId: companyId
+        companyId: companyId,
+        role: role
       }
     };
   };
