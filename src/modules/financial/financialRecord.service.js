@@ -62,7 +62,21 @@ export const financialRecordService = {
    */
   async createAndPay(companyId, data, txExternal = null) {
     const execute = async (tx) => {
-      const { bankAccountId, amount, type, description, paymentMethodId, categoryId, saleId, purchaseId, date } = data;
+      const { 
+        bankAccountId, 
+        amount, 
+        type, 
+        description, 
+        paymentMethodId, 
+        categoryId, 
+        saleId, 
+        purchaseId, 
+        date,
+        chequeNumber,
+        chequeOwner,
+        chequeDueDate,
+        chequeCustomerId
+      } = data;
 
       if (!bankAccountId) throw new AppError('Conta bancária é obrigatória para pagamentos imediatos', 400);
 
@@ -81,7 +95,11 @@ export const financialRecordService = {
         paymentMethodId,
         categoryId,
         saleId,
-        purchaseId
+        purchaseId,
+        chequeNumber,
+        chequeOwner,
+        chequeDueDate,
+        chequeCustomerId
       }, tx);
 
       // 2. Atualizar Saldo da Conta

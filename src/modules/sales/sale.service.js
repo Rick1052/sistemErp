@@ -60,7 +60,18 @@ export const saleService = {
   },
 
   async create(companyId, userId, data) {
-    const { items, discount = 0, freight = 0, statusId, installments = [], ...saleData } = data;
+    const { 
+      items, 
+      discount = 0, 
+      freight = 0, 
+      statusId, 
+      installments = [], 
+      chequeNumber,
+      chequeOwner,
+      chequeDueDate,
+      chequeCustomerId,
+      ...saleData 
+    } = data;
 
     // Calculate totals
     let subtotal = 0;
@@ -116,7 +127,15 @@ export const saleService = {
         if (saleStatus.stockAction === 'COMMIT') {
           logger.info(`[saleService.create] Gerando financeiro para venda recém-criada ${sale.id}`);
           const detailedSale = await saleService.getById(companyId, sale.id, tx);
-          await financeIntegrationService.generateReceivableFromSale(companyId, detailedSale, installments, tx);
+          // Injetar dados do cheque nas parcelas para o financeiro
+          const installmentsWithCheque = installments.map(inst => ({
+            ...inst,
+            chequeNumber,
+            chequeOwner,
+            chequeDueDate,
+            chequeCustomerId
+          }));
+          await financeIntegrationService.generateReceivableFromSale(companyId, detailedSale, installmentsWithCheque, tx);
         }
 
         return saleService.getById(companyId, sale.id, tx);
@@ -135,7 +154,18 @@ export const saleService = {
   },
 
   async update(companyId, userId, id, data) {
-    const { items, discount = 0, freight = 0, statusId, installments = [], ...saleData } = data;
+    const { 
+      items, 
+      discount = 0, 
+      freight = 0, 
+      statusId, 
+      installments = [], 
+      chequeNumber,
+      chequeOwner,
+      chequeDueDate,
+      chequeCustomerId,
+      ...saleData 
+    } = data;
 
     try {
       return await prisma.$transaction(async (tx) => {
@@ -210,7 +240,15 @@ export const saleService = {
           // Check if already has a record to avoid duplicates on edits
           const existingRecord = await tx.financialRecord.findFirst({ where: { saleId: id } });
           if (!existingRecord) {
-            await financeIntegrationService.generateReceivableFromSale(companyId, detailedSale, installments, tx);
+            // Injetar dados do cheque nas parcelas para o financeiro
+            const installmentsWithCheque = installments.map(inst => ({
+              ...inst,
+              chequeNumber,
+              chequeOwner,
+              chequeDueDate,
+              chequeCustomerId
+            }));
+            await financeIntegrationService.generateReceivableFromSale(companyId, detailedSale, installmentsWithCheque, tx);
           }
         }
 
