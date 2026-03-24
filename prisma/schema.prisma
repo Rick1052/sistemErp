@@ -575,6 +575,7 @@ model PaymentMethod {
   updatedAt            DateTime     @updatedAt
 
   financialRecords FinancialRecord[]
+  sales            Sale[]
 
   @@unique([companyId, cod])
   @@unique([companyId, name])
