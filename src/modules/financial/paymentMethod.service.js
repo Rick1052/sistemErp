@@ -21,8 +21,6 @@ export const paymentMethodService = {
   },
 
   async create(companyId, data) {
-    console.log('[paymentMethodService.create] DEBUG:', { companyId, data });
-    
     // Limpar UUIDs vazios para evitar erro Prisma
     if (data.destinationAccountId === "") {
         data.destinationAccountId = null;
@@ -31,7 +29,6 @@ export const paymentMethodService = {
     try {
       return await createWithSequence('paymentMethod', companyId, data);
     } catch (err) {
-      console.error('[paymentMethodService.create] ERROR:', err);
       throw err;
     }
   },

@@ -44,7 +44,9 @@ export const globalErrorHandler = (err, req, res, next) => {
   // Generic Error
   return res.status(statusCode).json({
     status: 'error',
-    message: err.message || 'Erro inesperado',
+    message: process.env.NODE_ENV === 'production'
+      ? 'Ocorreu um erro interno no servidor'
+      : err.message || 'Erro inesperado',
     ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
   });
 };
