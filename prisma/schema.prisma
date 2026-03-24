@@ -477,6 +477,16 @@ model Sale {
   items SaleItem[]
   financialRecords FinancialRecord[]
 
+  paymentMethodId String?
+  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  installmentsData Json? // Armazena as parcelas discriminadas no pedido
+  
+  // Cheque fields no pedido (para posterior faturamento)
+  chequeNumber     String?
+  chequeOwner      String?
+  chequeDueDate    DateTime?
+  chequeCustomerId String?
+
   date      DateTime @default(now())
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

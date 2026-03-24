@@ -66,13 +66,16 @@ export const saleService = {
       freight = 0, 
       statusId, 
       installments = [], 
-      paymentMethodId, // Remover da criação da venda
+      paymentMethodId, 
       chequeNumber,
       chequeOwner,
       chequeDueDate,
       chequeCustomerId,
       ...saleData 
     } = data;
+
+    // Persistir as parcelas planejadas para uso futuro se for Rascunho
+    const installmentsData = installments;
 
     // Calculate totals
     let subtotal = 0;
@@ -102,6 +105,12 @@ export const saleService = {
         const sale = await createWithSequence('sale', companyId, {
           ...saleData,
           statusId,
+          paymentMethodId, // Salvar no modelo Sale
+          installmentsData, // Salvar no modelo Sale (JSON)
+          chequeNumber, // Salvar no modelo Sale
+          chequeOwner, // Salvar no modelo Sale
+          chequeDueDate, // Salvar no modelo Sale
+          chequeCustomerId, // Salvar no modelo Sale
           subtotal,
           discount,
           freight,
@@ -161,13 +170,15 @@ export const saleService = {
       freight = 0, 
       statusId, 
       installments = [], 
-      paymentMethodId, // Remover da atualização da venda
+      paymentMethodId,
       chequeNumber,
       chequeOwner,
       chequeDueDate,
       chequeCustomerId,
       ...saleData 
     } = data;
+
+    const installmentsData = installments;
 
     try {
       return await prisma.$transaction(async (tx) => {
@@ -213,6 +224,12 @@ export const saleService = {
           data: {
             ...saleData,
             statusId,
+            paymentMethodId, // Atualizar no modelo Sale
+            installmentsData, // Atualizar no modelo Sale (JSON)
+            chequeNumber, // Atualizar no modelo Sale
+            chequeOwner, // Atualizar no modelo Sale
+            chequeDueDate, // Atualizar no modelo Sale
+            chequeCustomerId, // Atualizar no modelo Sale
             subtotal,
             discount,
             freight,
@@ -476,7 +493,21 @@ export const saleService = {
 
           if (!existingFinancial) {
             logger.info(`[saleService.updateStatus] Criando novo financeiro para venda ${id}`);
-            await financeIntegrationService.generateReceivableFromSale(companyId, updatedSale, installments, tx);
+            // Usar as parcelas discriminadas no pedido se não vierem parcelas novas
+            const instData = (installments && installments.length > 0) 
+              ? installments 
+              : (updatedSale.installmentsData || []);
+            
+            // Re-injetar dados do cheque que estavam persistidos na venda
+            const instToUse = instData.map(inst => ({
+              ...inst,
+              chequeNumber: inst.chequeNumber || updatedSale.chequeNumber,
+              chequeOwner: inst.chequeOwner || updatedSale.chequeOwner,
+              chequeDueDate: inst.chequeDueDate || updatedSale.chequeDueDate,
+              chequeCustomerId: inst.chequeCustomerId || updatedSale.chequeCustomerId
+            }));
+            
+            await financeIntegrationService.generateReceivableFromSale(companyId, updatedSale, instToUse, tx);
           }
         }
 
