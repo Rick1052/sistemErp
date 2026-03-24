@@ -570,6 +570,8 @@ model PaymentMethod {
   destinationAccount   BankAccount? @relation(fields: [destinationAccountId], references: [id])
   feePercentage        Decimal      @default(0) @db.Decimal(5, 2)
   isImmediate          Boolean      @default(true)
+  installments         Int          @default(1)
+  installmentInterval  Int          @default(30)
   status               Status       @default(ACTIVE)
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
