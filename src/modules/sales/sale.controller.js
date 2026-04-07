@@ -32,7 +32,7 @@ export const saleController = {
 
     const formattedData = {
       ...rest,
-      date: date ? new Date(date) : new Date()
+      date: date ? new Date(typeof date === 'string' && date.length === 10 ? `${date}T12:00:00Z` : date) : new Date()
     };
 
     // Validar se a data é válida
@@ -52,7 +52,7 @@ export const saleController = {
 
     const formattedData = {
       ...rest,
-      date: date ? new Date(date) : new Date()
+      date: date ? new Date(typeof date === 'string' && date.length === 10 ? `${date}T12:00:00Z` : date) : new Date()
     };
 
     // Validar se a data é válida

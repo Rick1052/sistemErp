@@ -12,5 +12,6 @@ router.get('/sales', reportController.getSalesReport);
 router.get('/financial', reportController.getFinancialReport);
 router.get('/bank-statement', reportController.getBankStatement);
 router.get('/dre', reportController.getDREReport);
+router.get('/cheques', reportController.getChequesReport);
 
 export default router;

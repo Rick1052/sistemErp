@@ -645,6 +645,7 @@ model FinancialRecord {
   chequeDueDate    DateTime?
   chequeCustomerId String?
   chequeCustomer   Client? @relation("ChequeCustomer", fields: [chequeCustomerId], references: [id])
+  chequeHistory    String?
   
   date      DateTime @default(now())
   createdAt DateTime @default(now())

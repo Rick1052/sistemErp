@@ -329,4 +329,59 @@ export const reportController = {
       tree
     });
   }),
+
+  /**
+   * 5. RELATÓRIO DE CHEQUES (GET /api/reports/cheques)
+   */
+  getChequesReport: asyncHandler(async (req, res) => {
+    const { startDate, endDate, status, clientName } = req.query;
+    const companyId = req.companyId;
+
+    const where = {
+      companyId,
+      chequeNumber: { not: null },
+    };
+
+    if (startDate || endDate) {
+      where.date = {
+        gte: startDate ? new Date(startDate) : undefined,
+        lte: endDate ? new Date(endDate) : undefined,
+      };
+    }
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (clientName) {
+      where.OR = [
+        { chequeCustomer: { name: { contains: clientName, mode: 'insensitive' } } },
+        { client: { name: { contains: clientName, mode: 'insensitive' } } }
+      ];
+    }
+
+    const cheques = await prisma.financialRecord.findMany({
+      where,
+      include: {
+        chequeCustomer: true,
+        client: true,
+        sale: { select: { cod: true } },
+      },
+      orderBy: { date: 'desc' },
+    });
+
+    const summary = await prisma.financialRecord.aggregate({
+      where,
+      _count: { id: true },
+      _sum: { amount: true },
+    });
+
+    res.json({
+      data: cheques,
+      summary: {
+        totalCheques: summary._count.id || 0,
+        totalAmount: summary._sum.amount || 0,
+      },
+    });
+  }),
 };

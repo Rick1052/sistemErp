@@ -19,8 +19,8 @@ export const financialRecordController = {
       ...rest,
       type,
       amount: Number(amount || 0),
-      dueDate: dueDate ? new Date(dueDate) : new Date(),
-      date: date ? new Date(date) : new Date()
+      dueDate: dueDate ? new Date(typeof dueDate === 'string' && dueDate.length === 10 ? `${dueDate}T12:00:00Z` : dueDate) : new Date(),
+      date: date ? new Date(typeof date === 'string' && date.length === 10 ? `${date}T12:00:00Z` : date) : new Date()
     };
 
     // Regra de Cliente vs Fornecedor
@@ -46,7 +46,7 @@ export const financialRecordController = {
       }
       data.chequeNumber = chequeNumber;
       data.chequeOwner = chequeOwner;
-      data.chequeDueDate = new Date(chequeDueDate);
+      data.chequeDueDate = new Date(typeof chequeDueDate === 'string' && chequeDueDate.length === 10 ? `${chequeDueDate}T12:00:00Z` : chequeDueDate);
       if (isNaN(data.chequeDueDate.getTime())) {
         return res.status(400).json({ error: 'A data do cheque (chequeDueDate) é inválida.' });
       }
@@ -75,7 +75,7 @@ export const financialRecordController = {
       if (!data.chequeOwner || !data.chequeDueDate) {
         return res.status(400).json({ error: 'Para atualizar ou manter um cheque, informe o titular (chequeOwner) e a data "bom para" (chequeDueDate).' });
       }
-      data.chequeDueDate = new Date(data.chequeDueDate);
+      data.chequeDueDate = new Date(typeof data.chequeDueDate === 'string' && data.chequeDueDate.length === 10 ? `${data.chequeDueDate}T12:00:00Z` : data.chequeDueDate);
       if (isNaN(data.chequeDueDate.getTime())) {
         return res.status(400).json({ error: 'A data do cheque (chequeDueDate) é inválida.' });
       }

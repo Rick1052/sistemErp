@@ -43,6 +43,16 @@ export const financeIntegrationService = {
         continue;
       }
 
+      let finalChequeCustomerId = inst.chequeCustomerId || null;
+      if (paymentMethod.name.toLowerCase().includes('cheque')) {
+        if (inst.chequeCustomerId && inst.chequeCustomerId !== sale.clientId) {
+          logger.error(`[financeIntegrationService] Tentativa de enviar chequeCustomerId diferente do clientId na venda #${sale.cod}. Bloqueando.`);
+          const AppError = (await import('../../utils/AppError.js')).AppError;
+          throw new AppError('O cliente do cheque deve ser o mesmo cliente que realizou a venda.', 400);
+        }
+        finalChequeCustomerId = sale.clientId;
+      }
+
       const instDescription = installmentsData.length > 1
         ? `${description} (${index + 1}/${installmentsData.length})`
         : description;
@@ -57,15 +67,15 @@ export const financeIntegrationService = {
         type: 'RECEIVABLE',
         description: instDescription,
         amount: amount,
-        dueDate: inst.dueDate ? new Date(inst.dueDate) : new Date(),
+        dueDate: inst.dueDate ? new Date(typeof inst.dueDate === 'string' && inst.dueDate.length === 10 ? `${inst.dueDate}T12:00:00Z` : inst.dueDate) : new Date(),
         date: sale.date || new Date(), // Herdar data da venda
         paymentMethodId: inst.paymentMethodId,
         saleId: sale.id,
         bankAccountId: paymentMethod?.destinationAccountId,
         chequeNumber: inst.chequeNumber || null,
         chequeOwner: inst.chequeOwner || null,
-        chequeDueDate: inst.chequeDueDate ? new Date(inst.chequeDueDate) : null,
-        chequeCustomerId: inst.chequeCustomerId || null
+        chequeDueDate: inst.chequeDueDate ? new Date(typeof inst.chequeDueDate === 'string' && inst.chequeDueDate.length === 10 ? `${inst.chequeDueDate}T12:00:00Z` : inst.chequeDueDate) : null,
+        chequeCustomerId: finalChequeCustomerId
       };
 
       logger.info(`[financeIntegrationService] Criando lançamento: ${instDescription}, R$ ${recordData.amount}`);

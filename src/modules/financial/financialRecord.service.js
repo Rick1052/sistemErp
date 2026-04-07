@@ -75,7 +75,8 @@ export const financialRecordService = {
         chequeNumber,
         chequeOwner,
         chequeDueDate,
-        chequeCustomerId
+        chequeCustomerId,
+        chequeHistory
       } = data;
 
       if (!bankAccountId) throw new AppError('Conta bancária é obrigatória para pagamentos imediatos', 400);
@@ -99,7 +100,8 @@ export const financialRecordService = {
         chequeNumber,
         chequeOwner,
         chequeDueDate,
-        chequeCustomerId
+        chequeCustomerId,
+        chequeHistory
       }, tx);
 
       // 2. Atualizar Saldo da Conta
@@ -155,7 +157,8 @@ export const financialRecordService = {
       chequeNumber,
       chequeOwner,
       chequeDueDate,
-      chequeCustomerId
+      chequeCustomerId,
+      chequeHistory
     } = paymentData;
 
     return prisma.$transaction(async (tx) => {
@@ -181,8 +184,9 @@ export const financialRecordService = {
           paymentMethodId: paymentMethodId || record.paymentMethodId,
           chequeNumber: chequeNumber || record.chequeNumber,
           chequeOwner: chequeOwner || record.chequeOwner,
-          chequeDueDate: chequeDueDate ? new Date(chequeDueDate) : record.chequeDueDate,
+          chequeDueDate: chequeDueDate ? new Date(typeof chequeDueDate === 'string' && chequeDueDate.length === 10 ? `${chequeDueDate}T12:00:00Z` : chequeDueDate) : record.chequeDueDate,
           chequeCustomerId: chequeCustomerId || record.chequeCustomerId,
+          chequeHistory: chequeHistory !== undefined ? chequeHistory : record.chequeHistory,
         },
       });
 
