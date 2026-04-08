@@ -140,7 +140,12 @@ export const financialRecordService = {
   async update(companyId, id, data) {
     const record = await this.getById(companyId, id);
     if (record.status === 'PAID') {
-      throw new AppError('Não é possível editar um título já pago. Estorne o pagamento primeiro.', 400);
+      // Se a única chave sendo atualizada for o chequeHistory, liberar.
+      const keys = Object.keys(data).filter(k => data[k] !== undefined);
+      const isOnlyHistory = keys.length === 1 && keys[0] === 'chequeHistory';
+      if (!isOnlyHistory) {
+        throw new AppError('Não é possível editar informações principais de um título já pago. Estorne o pagamento primeiro.', 400);
+      }
     }
     return prisma.financialRecord.update({
       where: { id },
@@ -235,10 +240,30 @@ export const financialRecordService = {
   },
 
   async delete(companyId, id) {
-    const record = await this.getById(companyId, id);
-    if (record.status === 'PAID') {
-      throw new AppError('Não é possível excluir um título já pago. Estorne o pagamento primeiro.', 400);
+    const record = await prisma.financialRecord.findFirst({
+      where: { id, companyId },
+      include: { sale: true }
+    });
+
+    if (!record) {
+      throw new AppError('Título não encontrado', 404);
     }
+
+    if (record.status === 'PAID') {
+      throw new AppError('Estorne o pagamento antes de excluir', 400);
+    }
+
+    if (record.saleId && record.sale) {
+      if (record.sale.status !== 'OPEN' && record.sale.status !== 'DRAFT') {
+        throw new AppError('Não é possível excluir título vinculado a uma venda que não está aberta ou em rascunho.', 400);
+      }
+    }
+
+    if (record.purchaseId) {
+      // Como o objeto purchase não existe como relation ainda, podemos apenas bloquear
+      throw new AppError('Não é possível excluir título vinculado a uma compra sistêmica estrutural de forma avulsa.', 400);
+    }
+
     return prisma.financialRecord.delete({
       where: { id },
     });

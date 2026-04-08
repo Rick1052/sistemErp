@@ -240,91 +240,77 @@ export const reportController = {
     const end = new Date(endDate);
     end.setHours(23, 59, 59, 999);
 
-    // 1. Buscar categorias
-    const categories = await prisma.financialCategory.findMany({
-      where: { companyId, status: 'ACTIVE' },
-      orderBy: { cod: 'asc' },
+    // 1. Receitas: Somar Vendas não canceladas pela data de faturamento (Competência)
+    const sales = await prisma.sale.findMany({
+      where: { companyId, date: { gte: start, lte: end } },
+      include: { status: true }
     });
 
-    // 2. Buscar registros pagos no período (pela data de pagamento)
-    const records = await prisma.financialRecord.findMany({
+    let totalRevenues = 0;
+    sales.forEach(sale => {
+      const sName = sale.status ? sale.status.name.toUpperCase() : '';
+      if (!sName.includes('CANCELAD')) {
+        totalRevenues += Number(sale.total);
+      }
+    });
+
+    // 2 e 3. Custos e Despesas: Usar FinancialRecords de PAYABLE pela data de Vencimento
+    const payables = await prisma.financialRecord.findMany({
       where: {
         companyId,
-        status: 'PAID',
-        paymentDate: {
-          gte: start,
-          lte: end,
-        },
+        type: 'PAYABLE',
+        status: { not: 'CANCELLED' },
+        dueDate: { gte: start, lte: end }
       },
+      include: { category: true }
     });
 
-    // 3. Agrupar em memória (Bottom-Up)
-    const categoryTotals = {};
-    categories.forEach(cat => categoryTotals[cat.id] = 0);
+    let totalCosts = 0;
+    let totalExpenses = 0;
 
-    records.forEach(record => {
-      if (record.categoryId && categoryTotals[record.categoryId] !== undefined) {
-        const amount = Number(record.amount);
-        const category = categories.find(c => c.id === record.categoryId);
-        
-        if (category.type === 'REVENUE') {
-            // Em DRE, Receita é positivo. Se houver devolução (PAYABLE em cat de receita), subtrai.
-            categoryTotals[record.categoryId] += (record.type === 'RECEIVABLE' ? amount : -amount);
-        } else {
-            // Despesa/Custo é positivo no acúmulo da categoria, mas subtrai do lucro final.
-            categoryTotals[record.categoryId] += (record.type === 'PAYABLE' ? amount : -amount);
-        }
-      }
-    });
-
-    // Montar árvore
-    const categoryMap = {};
-    categories.forEach(cat => {
-      categoryMap[cat.id] = {
-        id: cat.id,
-        cod: cat.cod,
-        name: cat.name,
-        type: cat.type,
-        parentId: cat.parentId,
-        total: categoryTotals[cat.id],
-        children: []
-      };
-    });
-
-    const tree = [];
-    Object.values(categoryMap).forEach(node => {
-      if (node.parentId && categoryMap[node.parentId]) {
-        categoryMap[node.parentId].children.push(node);
+    payables.forEach(record => {
+      const amount = Number(record.amount);
+      const isCost = record.purchaseId !== null || (record.category && record.category.name.toUpperCase().includes('CUSTO'));
+      
+      if (isCost) {
+        totalCosts += amount;
       } else {
-        tree.push(node);
+        totalExpenses += amount;
       }
     });
 
-    // Função recursiva para somar totais dos filhos nos pais
-    const aggregateTotals = (node) => {
-      let childrenSum = 0;
-      node.children.forEach(child => {
-        childrenSum += aggregateTotals(child);
-      });
-      node.total += childrenSum;
-      return node.total;
-    };
-
-    tree.forEach(root => aggregateTotals(root));
-
-    // Cálculos do DRE
-    const revenueRoots = tree.filter(n => n.type === 'REVENUE');
-    const expenseRoots = tree.filter(n => n.type === 'EXPENSE');
-
-    const totalRevenues = revenueRoots.reduce((acc, n) => acc + n.total, 0);
-    const totalExpenses = expenseRoots.reduce((acc, n) => acc + n.total, 0);
-    const netProfit = totalRevenues - totalExpenses;
+    const tree = [
+      {
+        id: 'dre-receita',
+        cod: '1',
+        name: 'Receita Bruta (Faturamento)',
+        type: 'REVENUE',
+        total: totalRevenues,
+        children: []
+      },
+      {
+        id: 'dre-custo',
+        cod: '2',
+        name: 'Custos Diretos Operacionais',
+        type: 'EXPENSE',
+        total: totalCosts,
+        children: []
+      },
+      {
+        id: 'dre-despesa',
+        cod: '3',
+        name: 'Despesas Gerais e Administrativas',
+        type: 'EXPENSE',
+        total: totalExpenses,
+        children: []
+      }
+    ];
 
     res.json({
       summary: {
         totalRevenues,
-        totalExpenses,
-        netProfit
+        totalExpenses: totalCosts + totalExpenses,
+        netProfit: totalRevenues - (totalCosts + totalExpenses)
       },
       tree
     });

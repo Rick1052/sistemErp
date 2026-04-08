@@ -511,6 +511,17 @@ export const saleService = {
           }
         }
 
+        // 4. Atualizar preço base do catálogo de produtos com a última negociação
+        if (newStatusName === 'ATENDIDO' || newStatusName === 'FATURADO') {
+          logger.info(`[saleService.updateStatus] Status ${newStatusName}: Atualizando preços de catálogo dos produtos.`);
+          for (const item of sale.items) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { price: item.unitPrice }
+            });
+          }
+        }
+
         logger.info(`[saleService.updateStatus] <<< FIM UPDATE STATUS: Sucesso`);
         return updatedSale;
       }, {
