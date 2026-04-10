@@ -75,7 +75,8 @@ export const financeIntegrationService = {
         chequeNumber: inst.chequeNumber || null,
         chequeOwner: inst.chequeOwner || null,
         chequeDueDate: inst.chequeDueDate ? new Date(typeof inst.chequeDueDate === 'string' && inst.chequeDueDate.length === 10 ? `${inst.chequeDueDate}T12:00:00Z` : inst.chequeDueDate) : null,
-        chequeCustomerId: finalChequeCustomerId
+        chequeCustomerId: finalChequeCustomerId,
+        chequeHistory: inst.chequeHistory || null
       };
 
       logger.info(`[financeIntegrationService] Criando lançamento: ${instDescription}, R$ ${recordData.amount}`);

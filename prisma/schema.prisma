@@ -486,6 +486,7 @@ model Sale {
   chequeOwner      String?
   chequeDueDate    DateTime?
   chequeCustomerId String?
+  chequeHistory    String?
 
   date      DateTime @default(now())
   createdAt DateTime @default(now())

@@ -37,5 +37,8 @@ export const createSaleSchema = z.object({
 });
 
 export const updateSaleStatusSchema = z.object({
-  statusId: z.string().uuid(),
+  statusId: z.string().uuid().optional(),
+  status: z.string().optional(),
+}).refine(data => data.statusId || data.status, {
+  message: "É obrigatório fornecer statusId ou status"
 });

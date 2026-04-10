@@ -71,6 +71,7 @@ export const saleService = {
       chequeOwner,
       chequeDueDate,
       chequeCustomerId,
+      chequeHistory,
       ...saleData 
     } = data;
 
@@ -111,6 +112,7 @@ export const saleService = {
           chequeOwner, // Salvar no modelo Sale
           chequeDueDate, // Salvar no modelo Sale
           chequeCustomerId, // Salvar no modelo Sale
+          chequeHistory, // Salvar no modelo Sale
           subtotal,
           discount,
           freight,
@@ -143,7 +145,8 @@ export const saleService = {
             chequeNumber,
             chequeOwner,
             chequeDueDate,
-            chequeCustomerId
+            chequeCustomerId,
+            chequeHistory
           }));
           await financeIntegrationService.generateReceivableFromSale(companyId, detailedSale, installmentsWithCheque, tx);
         }
@@ -175,6 +178,7 @@ export const saleService = {
       chequeOwner,
       chequeDueDate,
       chequeCustomerId,
+      chequeHistory,
       ...saleData 
     } = data;
 
@@ -230,6 +234,7 @@ export const saleService = {
             chequeOwner, // Atualizar no modelo Sale
             chequeDueDate, // Atualizar no modelo Sale
             chequeCustomerId, // Atualizar no modelo Sale
+            chequeHistory, // Atualizar no modelo Sale
             subtotal,
             discount,
             freight,
@@ -265,7 +270,8 @@ export const saleService = {
               chequeNumber,
               chequeOwner,
               chequeDueDate,
-              chequeCustomerId
+              chequeCustomerId,
+              chequeHistory
             }));
             await financeIntegrationService.generateReceivableFromSale(companyId, detailedSale, installmentsWithCheque, tx);
           }
@@ -504,7 +510,8 @@ export const saleService = {
               chequeNumber: inst.chequeNumber || updatedSale.chequeNumber,
               chequeOwner: inst.chequeOwner || updatedSale.chequeOwner,
               chequeDueDate: inst.chequeDueDate || updatedSale.chequeDueDate,
-              chequeCustomerId: inst.chequeCustomerId || updatedSale.chequeCustomerId
+              chequeCustomerId: inst.chequeCustomerId || updatedSale.chequeCustomerId,
+              chequeHistory: inst.chequeHistory || updatedSale.chequeHistory
             }));
             
             await financeIntegrationService.generateReceivableFromSale(companyId, updatedSale, instToUse, tx);

@@ -14,7 +14,11 @@ export const reportController = {
       companyId,
       date: {
         gte: startDate ? new Date(startDate) : undefined,
-        lte: endDate ? new Date(endDate) : undefined,
+        lte: endDate ? (() => {
+          const d = new Date(endDate);
+          d.setHours(23, 59, 59, 999);
+          return d;
+        })() : undefined,
       },
       statusId: statusId || undefined,
     };
@@ -43,8 +47,8 @@ export const reportController = {
     res.json({
       data: sales,
       summary: {
-        totalSales: aggregation._count.id || 0,
-        totalAmount: aggregation._sum.total || 0,
+        totalSales: Number(aggregation._count.id || 0),
+        totalAmount: Number(aggregation._sum.total || 0),
       },
     });
   }),
@@ -65,7 +69,11 @@ export const reportController = {
       type,
       dueDate: {
         gte: startDate ? new Date(startDate) : undefined,
-        lte: endDate ? new Date(endDate) : undefined,
+        lte: endDate ? (() => {
+          const d = new Date(endDate);
+          d.setHours(23, 59, 59, 999);
+          return d;
+        })() : undefined,
       },
       status: status || undefined,
     };
@@ -89,7 +97,11 @@ export const reportController = {
         type,
         dueDate: {
           gte: startDate ? new Date(startDate) : undefined,
-          lte: endDate ? new Date(endDate) : undefined,
+          lte: endDate ? (() => {
+            const d = new Date(endDate);
+            d.setHours(23, 59, 59, 999);
+            return d;
+          })() : undefined,
         },
       },
       _sum: {
@@ -104,19 +116,19 @@ export const reportController = {
     };
 
     groups.forEach((group) => {
-      if (group.status === 'PENDING') summary.totalPending = group._sum.amount || 0;
-      if (group.status === 'PAID') summary.totalPaid = group._sum.amount || 0;
+      if (group.status === 'PENDING') summary.totalPending = Number(group._sum.amount || 0);
+      if (group.status === 'PAID') summary.totalPaid = Number(group._sum.amount || 0);
       // 'CANCELLED' ou outros status não foram solicitados explicitamente no summary, 
       // mas o usuário citou totalOverdue. Geralmente PENDING com dueDate < hoje é overdue.
     });
 
-    // Lógica para Overdue (Atrasado): PENDING e data de vencimento menor que hoje
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     const overdueAggregation = await prisma.financialRecord.aggregate({
       where: {
-        ...where,
+        companyId,
+        type,
         status: 'PENDING',
         dueDate: {
           lt: today,
@@ -127,7 +139,7 @@ export const reportController = {
         amount: true,
       },
     });
-    summary.totalOverdue = overdueAggregation._sum.amount || 0;
+    summary.totalOverdue = Number(overdueAggregation._sum.amount || 0);
 
     res.json({
       data: records,
@@ -147,7 +159,11 @@ export const reportController = {
     }
 
     const start = startDate ? new Date(startDate) : new Date(0);
-    const end = endDate ? new Date(endDate) : new Date();
+    const end = endDate ? (() => {
+      const d = new Date(endDate);
+      d.setHours(23, 59, 59, 999);
+      return d;
+    })() : new Date();
 
     // 1. Buscar a conta bancária para pegar o initialBalance
     const bankAccount = await prisma.bankAccount.findUnique({
@@ -329,9 +345,13 @@ export const reportController = {
     };
 
     if (startDate || endDate) {
-      where.date = {
+      where.chequeDueDate = {
         gte: startDate ? new Date(startDate) : undefined,
-        lte: endDate ? new Date(endDate) : undefined,
+        lte: endDate ? (() => {
+          const d = new Date(endDate);
+          d.setHours(23, 59, 59, 999);
+          return d;
+        })() : undefined,
       };
     }
 
@@ -365,8 +385,8 @@ export const reportController = {
     res.json({
       data: cheques,
       summary: {
-        totalCheques: summary._count.id || 0,
-        totalAmount: summary._sum.amount || 0,
+        totalCheques: Number(summary._count.id || 0),
+        totalAmount: Number(summary._sum.amount || 0),
       },
     });
   }),

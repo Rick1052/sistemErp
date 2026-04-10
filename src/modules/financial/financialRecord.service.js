@@ -13,9 +13,13 @@ export const financialRecordService = {
     if (bankAccountId) where.bankAccountId = bankAccountId;
 
     if (startDate || endDate) {
-      where.date = {};
-      if (startDate) where.date.gte = new Date(startDate);
-      if (endDate) where.date.lte = new Date(endDate);
+      where.dueDate = {};
+      if (startDate) where.dueDate.gte = new Date(startDate);
+      if (endDate) {
+        const d = new Date(endDate);
+        d.setHours(23, 59, 59, 999);
+        where.dueDate.lte = d;
+      }
     }
 
     return prisma.financialRecord.findMany({
@@ -239,33 +243,52 @@ export const financialRecordService = {
     });
   },
 
+
   async delete(companyId, id) {
-    const record = await prisma.financialRecord.findFirst({
-      where: { id, companyId },
-      include: { sale: true }
-    });
+    try {
+      console.log(`[financialRecordService.delete] Tentando excluir ID: ${id}, Company: ${companyId}`);
+      
+      const record = await prisma.financialRecord.findFirst({
+        where: { id, companyId },
+        include: { 
+          sale: { 
+            include: { status: true } 
+          } 
+        }
+      });
 
-    if (!record) {
-      throw new AppError('Título não encontrado', 404);
-    }
-
-    if (record.status === 'PAID') {
-      throw new AppError('Estorne o pagamento antes de excluir', 400);
-    }
-
-    if (record.saleId && record.sale) {
-      if (record.sale.status !== 'OPEN' && record.sale.status !== 'DRAFT') {
-        throw new AppError('Não é possível excluir título vinculado a uma venda que não está aberta ou em rascunho.', 400);
+      if (!record) {
+        console.warn(`[financialRecordService.delete] Registro não encontrado: ${id}`);
+        throw new AppError('Título não encontrado', 404);
       }
-    }
 
-    if (record.purchaseId) {
-      // Como o objeto purchase não existe como relation ainda, podemos apenas bloquear
-      throw new AppError('Não é possível excluir título vinculado a uma compra sistêmica estrutural de forma avulsa.', 400);
-    }
+      console.log(`[financialRecordService.delete] Registro encontrado:`, {
+        status: record.status,
+        hasSale: !!record.saleId,
+        saleStatus: record.sale?.status?.name
+      });
 
-    return prisma.financialRecord.delete({
-      where: { id },
-    });
+      if (record.status === 'PAID') {
+        throw new AppError('Estorne o pagamento antes de excluir', 400);
+      }
+
+      // Removemos a validação de status da venda para permitir o fluxo: 
+      // 1. Deletar a conta gerada
+      // 2. Deletar o pedido
+      
+      if (record.purchaseId) {
+        throw new AppError('Não é possível excluir título vinculado a uma compra sistêmica estrutural de forma avulsa.', 400);
+      }
+
+      const result = await prisma.financialRecord.delete({
+        where: { id },
+      });
+      
+      console.log(`[financialRecordService.delete] Excluído com sucesso: ${id}`);
+      return result;
+    } catch (error) {
+      console.error(`[financialRecordService.delete] Erro ao excluir ${id}:`, error);
+      throw error;
+    }
   }
 };
