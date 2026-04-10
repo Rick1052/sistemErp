@@ -54,6 +54,13 @@ export const financialRecordService = {
 
   async create(companyId, data, tx = null) {
     try {
+      if (data.chequeHistory) {
+        const timestamp = new Date().toLocaleString('pt-BR', { 
+          day: '2-digit', month: '2-digit', year: 'numeric', 
+          hour: '2-digit', minute: '2-digit' 
+        });
+        data.chequeHistory = `[${timestamp}] - ${data.chequeHistory}`;
+      }
       return await createWithSequence('financialRecord', companyId, data, tx);
     } catch (error) {
       console.error('ERRO AO CRIAR LANÇAMENTO FINANCEIRO:', error);
@@ -151,6 +158,18 @@ export const financialRecordService = {
         throw new AppError('Não é possível editar informações principais de um título já pago. Estorne o pagamento primeiro.', 400);
       }
     }
+
+    if (data.chequeHistory) {
+      const timestamp = new Date().toLocaleString('pt-BR', { 
+        day: '2-digit', month: '2-digit', year: 'numeric', 
+        hour: '2-digit', minute: '2-digit' 
+      });
+      const newEntry = `[${timestamp}] - ${data.chequeHistory}`;
+      data.chequeHistory = record.chequeHistory 
+        ? `${newEntry}\n${record.chequeHistory}` 
+        : newEntry;
+    }
+
     return prisma.financialRecord.update({
       where: { id },
       data,

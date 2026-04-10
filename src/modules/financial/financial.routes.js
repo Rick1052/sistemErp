@@ -38,6 +38,7 @@ router.get('/records', financialRecordController.list);
 router.get('/records/:id', financialRecordController.getById);
 router.post('/records', financialRecordController.create);
 router.put('/records/:id', financialRecordController.update);
+router.patch('/records/:id', financialRecordController.update);
 router.patch('/records/:id/pay', financialRecordController.pay);
 router.patch('/records/:id/cancel', financialRecordController.cancel);
 router.delete('/records/:id', financialRecordController.delete);

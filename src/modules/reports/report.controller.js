@@ -371,7 +371,19 @@ export const reportController = {
       include: {
         chequeCustomer: true,
         client: true,
-        sale: { select: { cod: true } },
+        sale: { 
+          select: { 
+            cod: true,
+            total: true,
+            items: {
+              include: {
+                product: {
+                  select: { description: true }
+                }
+              }
+            }
+          } 
+        },
       },
       orderBy: { date: 'desc' },
     });
