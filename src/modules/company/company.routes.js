@@ -1,7 +1,8 @@
 import express from 'express';
 import { 
   createCompanyController, 
-  listCompaniesController 
+  listCompaniesController,
+  updateCompanyController
 } from './company.controller.js'
 
 import { authMiddleware } from '../../middleware/auth.middleware.js'
@@ -12,6 +13,7 @@ const router = express.Router()
 // Rotas protegidas
 router.post('/', authMiddleware, createCompanyController)
 router.get('/', authMiddleware, listCompaniesController)
+router.put('/:id', authMiddleware, updateCompanyController)
 
 router.get(
   '/me',

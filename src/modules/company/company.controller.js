@@ -1,4 +1,4 @@
-import { createCompanyService, listCompaniesService } from './company.service.js';
+import { createCompanyService, listCompaniesService, updateCompanyService } from './company.service.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 
 // Criar empresa
@@ -18,4 +18,14 @@ export const listCompaniesController = asyncHandler(async (req, res) => {
     const companies = await listCompaniesService(userId);
     
     return res.status(200).json(companies);
+});
+
+// Atualizar empresa
+export const updateCompanyController = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const data = req.body;
+    
+    const company = await updateCompanyService(id, data);
+    
+    return res.status(200).json(company);
 });

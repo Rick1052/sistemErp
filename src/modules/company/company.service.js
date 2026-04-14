@@ -50,3 +50,37 @@ export async function listCompaniesService(userId) {
   // O .map limpa a estrutura para o frontend não ter que lidar com o objeto da tabela pivô
   return companies.map(uc => uc.company);
 }
+
+// Atualizar empresa
+export async function updateCompanyService(companyId, data) {
+  const { 
+    name, 
+    document, 
+    phone, 
+    email, 
+    street, 
+    number, 
+    complement, 
+    neighborhood, 
+    city, 
+    state, 
+    zipCode 
+  } = data;
+
+  return prisma.company.update({
+    where: { id: companyId },
+    data: {
+      name,
+      document,
+      phone,
+      email,
+      street,
+      number,
+      complement,
+      neighborhood,
+      city,
+      state,
+      zipCode
+    }
+  });
+}
