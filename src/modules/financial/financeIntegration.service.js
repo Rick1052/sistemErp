@@ -63,6 +63,10 @@ export const financeIntegrationService = {
         continue;
       }
 
+      const settlement = paymentMethod.valueDestination || 'RECEIVABLE_ONLY';
+      const bankAccountId =
+        settlement === 'BANK_ACCOUNT' ? paymentMethod.destinationAccountId : null;
+
       const recordData = {
         type: 'RECEIVABLE',
         description: instDescription,
@@ -71,7 +75,7 @@ export const financeIntegrationService = {
         date: sale.date || new Date(), // Herdar data da venda
         paymentMethodId: inst.paymentMethodId,
         saleId: sale.id,
-        bankAccountId: paymentMethod?.destinationAccountId,
+        bankAccountId,
         chequeNumber: inst.chequeNumber || null,
         chequeOwner: inst.chequeOwner || null,
         chequeDueDate: inst.chequeDueDate ? new Date(typeof inst.chequeDueDate === 'string' && inst.chequeDueDate.length === 10 ? `${inst.chequeDueDate}T12:00:00Z` : inst.chequeDueDate) : null,
@@ -79,9 +83,13 @@ export const financeIntegrationService = {
         chequeHistory: inst.chequeHistory || null
       };
 
-      logger.info(`[financeIntegrationService] Criando lançamento: ${instDescription}, R$ ${recordData.amount}`);
+      logger.info(`[financeIntegrationService] Criando lançamento: ${instDescription}, R$ ${recordData.amount} (destino=${settlement})`);
 
-      if (paymentMethod?.isImmediate) {
+      const shouldLiquidateImmediately = Boolean(
+        paymentMethod?.isImmediate && settlement === 'BANK_ACCOUNT' && bankAccountId
+      );
+
+      if (shouldLiquidateImmediately) {
         const record = await financialRecordService.createAndPay(companyId, recordData, client);
         records.push(record);
       } else {

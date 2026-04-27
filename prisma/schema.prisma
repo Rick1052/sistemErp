@@ -60,6 +60,12 @@ enum CategoryType {
   EXPENSE
 }
 
+/// Onde o valor da venda/título deve ser registrado ao usar esta forma de pagamento
+enum PaymentValueDestination {
+  RECEIVABLE_ONLY // Apenas contas a receber (sem conta bancária vinculada)
+  BANK_ACCOUNT    // Conta bancária cadastrada (destinationAccountId)
+}
+
 //////////////////////////////////////////////////////
 // USER & AUTH
 //////////////////////////////////////////////////////
@@ -579,6 +585,8 @@ model PaymentMethod {
   companyId            String
   company              Company      @relation(fields: [companyId], references: [id])
   name                 String
+  /// Define se o valor fica só em contas a receber ou é vinculado a uma conta bancária
+  valueDestination     PaymentValueDestination @default(RECEIVABLE_ONLY)
   destinationAccountId String?
   destinationAccount   BankAccount? @relation(fields: [destinationAccountId], references: [id])
   feePercentage        Decimal      @default(0) @db.Decimal(5, 2)

@@ -22,6 +22,11 @@ export const createSaleSchema = z.object({
     paymentMethodId: robustUUID(true),
     amount: robustNumber(),
     dueDate: z.string().or(z.date()),
+    chequeNumber: z.string().optional(),
+    chequeOwner: z.string().optional(),
+    chequeDueDate: z.coerce.date().optional().or(z.string().optional()),
+    chequeCustomerId: robustUUID(false),
+    chequeHistory: z.string().optional(),
   })).optional(),
   items: z.array(z.object({
     productId: robustUUID(true),
@@ -41,4 +46,18 @@ export const updateSaleStatusSchema = z.object({
   status: z.string().optional(),
 }).refine(data => data.statusId || data.status, {
   message: "É obrigatório fornecer statusId ou status"
+});
+
+/** Corpo opcional de POST /sales/:id/generate-receivables — parcelas da tela; se omitir, usa o JSON salvo no pedido */
+export const generateReceivablesSchema = z.object({
+  installments: z.array(z.object({
+    paymentMethodId: robustUUID(true),
+    amount: robustNumber(),
+    dueDate: z.string().or(z.date()),
+    chequeNumber: z.string().optional(),
+    chequeOwner: z.string().optional(),
+    chequeDueDate: z.coerce.date().optional().or(z.string().optional()),
+    chequeCustomerId: robustUUID(false),
+    chequeHistory: z.string().optional(),
+  })).optional(),
 });

@@ -22,8 +22,9 @@ export const saleService = {
         include: {
           client: { select: { id: true, name: true, document: true } },
           status: true,
+          _count: { select: { financialRecords: true } },
         },
-        orderBy: { date: 'desc' },
+        orderBy: { cod: 'desc' },
         skip,
         take: limit,
       }),
@@ -140,13 +141,13 @@ export const saleService = {
           logger.info(`[saleService.create] Gerando financeiro para venda recém-criada ${sale.id}`);
           const detailedSale = await saleService.getById(companyId, sale.id, tx);
           // Injetar dados do cheque nas parcelas para o financeiro
-          const installmentsWithCheque = installments.map(inst => ({
+          const installmentsWithCheque = installments.map((inst) => ({
             ...inst,
-            chequeNumber,
-            chequeOwner,
-            chequeDueDate,
-            chequeCustomerId,
-            chequeHistory
+            chequeNumber: inst.chequeNumber || chequeNumber,
+            chequeOwner: inst.chequeOwner || chequeOwner,
+            chequeDueDate: inst.chequeDueDate || chequeDueDate,
+            chequeCustomerId: inst.chequeCustomerId || chequeCustomerId,
+            chequeHistory: inst.chequeHistory || chequeHistory,
           }));
           await financeIntegrationService.generateReceivableFromSale(companyId, detailedSale, installmentsWithCheque, tx);
         }
@@ -265,13 +266,13 @@ export const saleService = {
           const existingRecord = await tx.financialRecord.findFirst({ where: { saleId: id } });
           if (!existingRecord) {
             // Injetar dados do cheque nas parcelas para o financeiro
-            const installmentsWithCheque = installments.map(inst => ({
+            const installmentsWithCheque = installments.map((inst) => ({
               ...inst,
-              chequeNumber,
-              chequeOwner,
-              chequeDueDate,
-              chequeCustomerId,
-              chequeHistory
+              chequeNumber: inst.chequeNumber || chequeNumber,
+              chequeOwner: inst.chequeOwner || chequeOwner,
+              chequeDueDate: inst.chequeDueDate || chequeDueDate,
+              chequeCustomerId: inst.chequeCustomerId || chequeCustomerId,
+              chequeHistory: inst.chequeHistory || chequeHistory,
             }));
             await financeIntegrationService.generateReceivableFromSale(companyId, detailedSale, installmentsWithCheque, tx);
           }
@@ -547,5 +548,80 @@ export const saleService = {
       });
       throw error;
     }
-  }
+  },
+
+  /**
+   * Gera contas a receber (títulos) para o pedido sem alterar situação nem estoque.
+   * Usa parcelas enviadas no corpo; se não enviar, usa installmentsData salvo no pedido
+   * ou uma parcela única a partir de paymentMethodId + total.
+   */
+  async generateReceivables(companyId, userId, id, body = {}) {
+    const { installments: bodyInstallments } = body;
+    logger.info(`[saleService.generateReceivables] Pedido=${id} company=${companyId} user=${userId}`);
+
+    return prisma.$transaction(async (tx) => {
+      const sale = await tx.sale.findFirst({
+        where: { id, companyId },
+      });
+      if (!sale) throw new AppError('Venda não encontrada', 404);
+
+      const existingCount = await tx.financialRecord.count({
+        where: { saleId: id, companyId },
+      });
+      if (existingCount > 0) {
+        throw new AppError('Este pedido já possui lançamentos em contas a receber vinculados a ele.', 400);
+      }
+
+      const rawStored = sale.installmentsData;
+      const storedArr = Array.isArray(rawStored) ? rawStored : [];
+
+      let instData =
+        Array.isArray(bodyInstallments) && bodyInstallments.length > 0
+          ? bodyInstallments
+          : storedArr;
+
+      const total = Number(sale.total);
+      if (instData.length > 0) {
+        const sum = instData.reduce((s, i) => s + Number(i.amount), 0);
+        if (Math.abs(sum - total) > 0.01) {
+          throw new AppError('A soma das parcelas difere do total do pedido. Ajuste as parcelas ou salve o pedido antes de lançar.', 400);
+        }
+      }
+
+      if (instData.length === 0 && !sale.paymentMethodId) {
+        throw new AppError(
+          'Defina a forma de pagamento no pedido ou cadastre parcelas na negociação antes de gerar o financeiro.',
+          400
+        );
+      }
+
+      const detailedSale = await saleService.getById(companyId, id, tx);
+      const installmentsWithCheque =
+        instData.length > 0
+          ? instData.map((inst) => ({
+              ...inst,
+              chequeNumber: inst.chequeNumber || sale.chequeNumber,
+              chequeOwner: inst.chequeOwner || sale.chequeOwner,
+              chequeDueDate: inst.chequeDueDate || sale.chequeDueDate,
+              chequeCustomerId: inst.chequeCustomerId || sale.chequeCustomerId,
+              chequeHistory: inst.chequeHistory || sale.chequeHistory,
+            }))
+          : [];
+
+      const records = await financeIntegrationService.generateReceivableFromSale(
+        companyId,
+        detailedSale,
+        installmentsWithCheque,
+        tx
+      );
+      if (!records || records.length === 0) {
+        throw new AppError(
+          'Não foi possível gerar os títulos. Verifique formas de pagamento, valores e datas das parcelas.',
+          400
+        );
+      }
+
+      return saleService.getById(companyId, id, tx);
+    }, { timeout: 30000 });
+  },
 };

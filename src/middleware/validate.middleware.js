@@ -4,7 +4,7 @@ import logger from "../utils/logger.js";
 export function validate(schema) {
   return (req, res, next) => {
     try {
-      const validatedData = schema.parse(req.body);
+      const validatedData = schema.parse(req.body ?? {});
 
       req.validatedBody = validatedData;
 

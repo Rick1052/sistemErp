@@ -79,5 +79,13 @@ export const saleController = {
     const { statusId, installments } = req.body;
     const sale = await saleService.updateStatus(companyId, userId, id, statusId, installments);
     return res.json(sale);
-  })
+  }),
+
+  generateReceivables: asyncHandler(async (req, res) => {
+    const { companyId } = req;
+    const { id: userId } = req.user;
+    const { id } = req.params;
+    const sale = await saleService.generateReceivables(companyId, userId, id, req.validatedBody || {});
+    return res.json(sale);
+  }),
 };
