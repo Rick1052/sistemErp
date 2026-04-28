@@ -46,6 +46,7 @@ enum FinancialRecordType {
 
 enum FinancialStatus {
   PENDING
+  PARTIALLY_PAID
   PAID
   CANCELLED
 }
@@ -573,6 +574,7 @@ model BankAccount {
   paymentMethods   PaymentMethod[]
   financialRecords FinancialRecord[]
   transactions     BankTransaction[]
+  financialRecordPayments FinancialRecordPayment[]
 
   @@unique([companyId, cod])
   @@unique([companyId, name])
@@ -599,6 +601,7 @@ model PaymentMethod {
 
   financialRecords FinancialRecord[]
   sales            Sale[]
+  financialRecordPayments FinancialRecordPayment[]
 
   @@unique([companyId, cod])
   @@unique([companyId, name])
@@ -638,6 +641,7 @@ model FinancialRecord {
   type         FinancialRecordType
   description  String
   amount       Decimal             @db.Decimal(15, 2)
+  paidAmount   Decimal             @default(0) @db.Decimal(15, 2)
   dueDate      DateTime
   paymentDate  DateTime?
   status       FinancialStatus     @default(PENDING)
@@ -674,11 +678,35 @@ model FinancialRecord {
   updatedAt DateTime @updatedAt
 
   transactions BankTransaction[]
+  payments     FinancialRecordPayment[]
 
   @@unique([companyId, cod])
   @@index([companyId])
   @@index([saleId])
   @@index([status])
+}
+
+model FinancialRecordPayment {
+  id                String          @id @default(uuid())
+  companyId         String
+  financialRecordId String
+  financialRecord   FinancialRecord @relation(fields: [financialRecordId], references: [id])
+
+  amount          Decimal       @db.Decimal(15, 2)
+  paymentDate     DateTime      @default(now())
+  bankAccountId   String
+  bankAccount     BankAccount   @relation(fields: [bankAccountId], references: [id])
+  paymentMethodId String
+  paymentMethod   PaymentMethod @relation(fields: [paymentMethodId], references: [id])
+
+  note      String?
+  createdAt DateTime @default(now())
+
+  bankTransactions BankTransaction[]
+
+  @@index([companyId])
+  @@index([financialRecordId])
+  @@index([paymentDate])
 }
 
 model BankTransaction {
@@ -688,6 +716,8 @@ model BankTransaction {
   bankAccount       BankAccount     @relation(fields: [bankAccountId], references: [id])
   financialRecordId String?
   financialRecord   FinancialRecord? @relation(fields: [financialRecordId], references: [id])
+  financialRecordPaymentId String?
+  financialRecordPayment   FinancialRecordPayment? @relation(fields: [financialRecordPaymentId], references: [id])
   type              TransactionType
   amount            Decimal         @db.Decimal(15, 2)
   date              DateTime        @default(now())
@@ -696,4 +726,5 @@ model BankTransaction {
 
   @@index([bankAccountId])
   @@index([date])
+  @@index([financialRecordPaymentId])
 }

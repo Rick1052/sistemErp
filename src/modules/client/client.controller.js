@@ -7,9 +7,11 @@ import {
   deleteManyClient
 } from "./client.service.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
+import { cacheBumpVersion, cacheGetOrSetJSON, cacheKeyFromReq } from '../../utils/cache.js';
 
 export const createController = asyncHandler(async (req, res) => {
   const client = await createClient(req.companyId, req.validatedBody);
+  await cacheBumpVersion({ companyId: req.companyId, resource: 'clients' });
   return res.status(201).json(client);
 });
 
@@ -17,12 +19,23 @@ export const listController = asyncHandler(async (req, res) => {
   const { search, page, limit } = req.query;
 
   const parsedPage = parseInt(page) || 1;
-  const parsedLimit = parseInt(limit) || 10;
+  const parsedLimit = parseInt(limit) || 25;
 
-  const result = await getAllClients(req.companyId, {
-    search: search ? String(search) : undefined,
-    page: parsedPage > 0 ? parsedPage : 1,
-    limit: parsedLimit > 0 ? parsedLimit : 10
+  const key = await cacheKeyFromReq({
+    companyId: req.companyId,
+    resource: 'clients',
+    query: req.query,
+  });
+
+  const result = await cacheGetOrSetJSON({
+    key,
+    ttlSeconds: 60,
+    producer: () =>
+      getAllClients(req.companyId, {
+        search: search ? String(search) : undefined,
+        page: parsedPage > 0 ? parsedPage : 1,
+        limit: parsedLimit > 0 ? parsedLimit : 25,
+      }),
   });
 
   // Ensure result has the expected properties
@@ -39,11 +52,13 @@ export const getByIdController = asyncHandler(async (req, res) => {
 
 export const updateController = asyncHandler(async (req, res) => {
   const client = await updateClient(req.companyId, req.params.id, req.validatedBody);
+  await cacheBumpVersion({ companyId: req.companyId, resource: 'clients' });
   return res.status(200).json(client);
 });
 
 export const deleteControler = asyncHandler(async (req, res) => {
   await deleteClient(req.companyId, req.params.id);
+  await cacheBumpVersion({ companyId: req.companyId, resource: 'clients' });
   return res.status(200).json({ message: "Cliente removido com sucesso" });
 });
 
@@ -57,6 +72,7 @@ export const deleteManyController = asyncHandler(async (req, res) => {
   }
 
   await deleteManyClient(req.companyId, ids);
+  await cacheBumpVersion({ companyId: req.companyId, resource: 'clients' });
 
   return res.status(200).json({
     message: "Clientes removidos com sucesso"

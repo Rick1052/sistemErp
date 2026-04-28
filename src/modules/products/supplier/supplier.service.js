@@ -10,7 +10,7 @@ export async function createSupplier(companyId, data) {
     return createWithSequence('supplier', companyId, data);
 }
 
-export async function getAllSupplier(companyId, { search, page = 1, limit = 10 } = {}) {
+export async function getAllSupplier(companyId, { search, page = 1, limit = 25 } = {}) {
     const skip = (page - 1) * limit;
     const where = { companyId };
 

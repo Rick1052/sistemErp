@@ -1,6 +1,8 @@
 import { registerEntry, registerExit, getStockMovements } from "./stockMovement.service.js";
 import { asyncHandler } from "../../../utils/asyncHandler.js";
 import { AppError } from "../../../utils/AppError.js";
+import { cacheGetOrSetJSON, cacheKeyFromReq } from "../../../utils/cache.js";
+import { cacheBumpVersion } from "../../../utils/cache.js";
 
 export const createController = asyncHandler(async (req, res) => {
     const { type, ...movementData } = req.validatedBody;
@@ -27,6 +29,8 @@ export const createController = asyncHandler(async (req, res) => {
         message: "Movimentação processada com sucesso",
         movement
     });
+    await cacheBumpVersion({ companyId: req.companyId, resource: "stockMovements" });
+    await cacheBumpVersion({ companyId: req.companyId, resource: "products" });
 });
 
 export const listController = asyncHandler(async (req, res) => {
@@ -36,6 +40,17 @@ export const listController = asyncHandler(async (req, res) => {
         warehouseId: req.query.warehouseId
     };
 
-    const movements = await getStockMovements(req.companyId, filters);
+    const key = await cacheKeyFromReq({
+        companyId: req.companyId,
+        resource: "stockMovements",
+        query: req.query,
+    });
+
+    const movements = await cacheGetOrSetJSON({
+        key,
+        ttlSeconds: 30,
+        producer: () => getStockMovements(req.companyId, filters),
+    });
+
     res.status(200).json(movements);
 });

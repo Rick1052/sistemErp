@@ -1,10 +1,14 @@
 import prisma from '../../database/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { createWithSequence } from '../../utils/createWithSequence.js';
+import { parseDateInput } from '../../utils/date.js';
 
 export const financialRecordService = {
   async list(companyId, filters = {}) {
     const { type, status, startDate, endDate, categoryId, bankAccountId } = filters;
+    const page = Math.max(1, Number(filters.page ?? 1) || 1);
+    const limit = Math.max(1, Math.min(100, Number(filters.limit ?? 25) || 25));
+    const skip = (page - 1) * limit;
     const where = { companyId };
 
     if (type) where.type = type;
@@ -22,18 +26,32 @@ export const financialRecordService = {
       }
     }
 
-    return prisma.financialRecord.findMany({
-      where,
-      include: {
-        bankAccount: true,
-        paymentMethod: true,
-        category: true,
-        sale: { select: { cod: true } },
-        client: true,
-        supplier: true
-      },
-      orderBy: { date: 'desc' },
-    });
+    const [total, data] = await Promise.all([
+      prisma.financialRecord.count({ where }),
+      prisma.financialRecord.findMany({
+        where,
+        include: {
+          bankAccount: true,
+          paymentMethod: true,
+          category: true,
+          sale: { select: { cod: true } },
+          client: true,
+          supplier: true,
+          payments: {
+            include: {
+              bankAccount: true,
+              paymentMethod: true,
+            },
+            orderBy: { paymentDate: 'desc' },
+          },
+        },
+        orderBy: { date: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    return { data, total, page, limit };
   },
 
   async getById(companyId, id) {
@@ -44,6 +62,13 @@ export const financialRecordService = {
         paymentMethod: true,
         category: true,
         transactions: true,
+        payments: {
+          include: {
+            bankAccount: true,
+            paymentMethod: true,
+          },
+          orderBy: { paymentDate: 'desc' },
+        },
         client: true,
         supplier: true
       },
@@ -92,7 +117,8 @@ export const financialRecordService = {
 
       if (!bankAccountId) throw new AppError('Conta bancária é obrigatória para pagamentos imediatos', 400);
 
-      const pDate = date ? new Date(date) : new Date();
+      const pDate = parseDateInput(date);
+      if (isNaN(pDate.getTime())) throw new AppError('Data inválida', 400);
 
       // 1. Criar o Título como PAID
       const record = await this.create(companyId, {
@@ -103,6 +129,7 @@ export const financialRecordService = {
         dueDate: pDate,
         paymentDate: pDate,
         status: 'PAID',
+        paidAmount: amount,
         bankAccountId,
         paymentMethodId,
         categoryId,
@@ -129,11 +156,24 @@ export const financialRecordService = {
       });
 
       // 3. Registrar Transação
+      const payment = await tx.financialRecordPayment.create({
+        data: {
+          companyId,
+          financialRecordId: record.id,
+          amount,
+          paymentDate: pDate,
+          bankAccountId,
+          paymentMethodId,
+          note: 'Pagamento imediato',
+        },
+      });
+
       await tx.bankTransaction.create({
         data: {
           companyId,
           bankAccountId,
           financialRecordId: record.id,
+          financialRecordPaymentId: payment.id,
           type: isRevenue ? 'CREDIT' : 'DEBIT',
           amount,
           date: pDate,
@@ -150,12 +190,12 @@ export const financialRecordService = {
 
   async update(companyId, id, data) {
     const record = await this.getById(companyId, id);
-    if (record.status === 'PAID') {
+    if (record.status === 'PAID' || record.status === 'PARTIALLY_PAID') {
       // Se a única chave sendo atualizada for o chequeHistory, liberar.
       const keys = Object.keys(data).filter(k => data[k] !== undefined);
       const isOnlyHistory = keys.length === 1 && keys[0] === 'chequeHistory';
       if (!isOnlyHistory) {
-        throw new AppError('Não é possível editar informações principais de um título já pago. Estorne o pagamento primeiro.', 400);
+        throw new AppError('Não é possível editar informações principais de um título já baixado. Estorne os pagamentos primeiro.', 400);
       }
     }
 
@@ -182,6 +222,7 @@ export const financialRecordService = {
       paymentDate, 
       amountPaid, 
       paymentMethodId,
+      note,
       chequeNumber,
       chequeOwner,
       chequeDueDate,
@@ -198,23 +239,35 @@ export const financialRecordService = {
       if (record.status === 'PAID') throw new AppError('Título já está pago', 400);
       if (record.status === 'CANCELLED') throw new AppError('Título está cancelado', 400);
 
-      const amountToUse = amountPaid ?? record.amount;
-      const pDate = paymentDate ? new Date(paymentDate) : new Date();
+      if (!bankAccountId) throw new AppError('Conta bancária é obrigatória', 400);
+      if (!paymentMethodId) throw new AppError('Forma de pagamento é obrigatória', 400);
 
-      // 1. Atualizar o Título
-      const updatedRecord = await tx.financialRecord.update({
-        where: { id },
+      const totalAmount = Number(record.amount);
+      const alreadyPaid = Number(record.paidAmount ?? 0);
+      const remaining = totalAmount - alreadyPaid;
+
+      const amountToUseRaw = amountPaid ?? remaining;
+      const amountToUse = Number(amountToUseRaw);
+      if (!Number.isFinite(amountToUse) || amountToUse <= 0) {
+        throw new AppError('Valor da baixa inválido', 400);
+      }
+      if (amountToUse > remaining + 0.000001) {
+        throw new AppError('Valor da baixa não pode ser maior que o saldo em aberto', 400);
+      }
+
+      const pDate = parseDateInput(paymentDate);
+      if (isNaN(pDate.getTime())) throw new AppError('Data de baixa inválida', 400);
+
+      // 1. Criar a baixa (pagamento)
+      const payment = await tx.financialRecordPayment.create({
         data: {
-          status: 'PAID',
-          bankAccountId,
-          paymentDate: pDate,
+          companyId,
+          financialRecordId: id,
           amount: amountToUse,
-          paymentMethodId: paymentMethodId || record.paymentMethodId,
-          chequeNumber: chequeNumber || record.chequeNumber,
-          chequeOwner: chequeOwner || record.chequeOwner,
-          chequeDueDate: chequeDueDate ? new Date(typeof chequeDueDate === 'string' && chequeDueDate.length === 10 ? `${chequeDueDate}T12:00:00Z` : chequeDueDate) : record.chequeDueDate,
-          chequeCustomerId: chequeCustomerId || record.chequeCustomerId,
-          chequeHistory: chequeHistory !== undefined ? chequeHistory : record.chequeHistory,
+          paymentDate: pDate,
+          bankAccountId,
+          paymentMethodId,
+          note: note ?? null,
         },
       });
 
@@ -239,11 +292,34 @@ export const financialRecordService = {
           companyId,
           bankAccountId,
           financialRecordId: id,
+          financialRecordPaymentId: payment.id,
           type: isRevenue ? 'CREDIT' : 'DEBIT',
           amount: amountToUse,
           date: pDate,
-          description: `Baixa de título: ${record.description}`,
+          description: `Baixa (${amountToUse.toFixed(2)}): ${record.description}`,
           balanceAfter: newBalance,
+        },
+      });
+
+      // 4. Atualizar o título (paidAmount/status/paymentDate e campos de cheque)
+      const newPaidAmount = alreadyPaid + amountToUse;
+      const isFullyPaid = newPaidAmount >= totalAmount - 0.000001;
+
+      const updatedRecord = await tx.financialRecord.update({
+        where: { id },
+        data: {
+          status: isFullyPaid ? 'PAID' : 'PARTIALLY_PAID',
+          paidAmount: newPaidAmount,
+          paymentDate: pDate, // última baixa
+          bankAccountId: bankAccountId || record.bankAccountId,
+          paymentMethodId: paymentMethodId || record.paymentMethodId,
+          chequeNumber: chequeNumber || record.chequeNumber,
+          chequeOwner: chequeOwner || record.chequeOwner,
+          chequeDueDate: chequeDueDate
+            ? new Date(typeof chequeDueDate === 'string' && chequeDueDate.length === 10 ? `${chequeDueDate}T12:00:00Z` : chequeDueDate)
+            : record.chequeDueDate,
+          chequeCustomerId: chequeCustomerId || record.chequeCustomerId,
+          chequeHistory: chequeHistory !== undefined ? chequeHistory : record.chequeHistory,
         },
       });
 

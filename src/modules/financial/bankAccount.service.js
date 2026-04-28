@@ -52,6 +52,9 @@ export const bankAccountService = {
 
   async getStatement(companyId, id, params = {}) {
     const { month, year } = params;
+    const page = Math.max(1, Number(params.page ?? 1) || 1);
+    const limit = Math.max(1, Math.min(100, Number(params.limit ?? 25) || 25));
+    const skip = (page - 1) * limit;
     
     const account = await this.getById(companyId, id);
     
@@ -69,19 +72,31 @@ export const bankAccountService = {
       };
     }
 
-    const transactions = await prisma.bankTransaction.findMany({
-      where,
-      orderBy: { date: 'asc' },
-    });
+    const [total, transactions] = await Promise.all([
+      prisma.bankTransaction.count({ where }),
+      prisma.bankTransaction.findMany({
+        where,
+        // Ordenação cronológica: página 1 = mais antiga
+        orderBy: { date: 'asc' },
+        skip,
+        take: limit,
+      }),
+    ]);
 
-    // Calculate totals for the period
-    const totalIn = transactions
-      .filter(t => t.type === 'CREDIT')
-      .reduce((sum, t) => sum + Number(t.amount), 0);
-      
-    const totalOut = transactions
-      .filter(t => t.type === 'DEBIT')
-      .reduce((sum, t) => sum + Number(t.amount), 0);
+    // Totais do período (independente da página)
+    const [totalInAgg, totalOutAgg] = await Promise.all([
+      prisma.bankTransaction.aggregate({
+        where: { ...where, type: 'CREDIT' },
+        _sum: { amount: true },
+      }),
+      prisma.bankTransaction.aggregate({
+        where: { ...where, type: 'DEBIT' },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    const totalIn = Number(totalInAgg?._sum?.amount || 0);
+    const totalOut = Number(totalOutAgg?._sum?.amount || 0);
 
     return {
       initialBalance: Number(account.initialBalance), // Simplified for now
@@ -89,6 +104,10 @@ export const bankAccountService = {
       totalIn,
       totalOut,
       finalBalance: Number(account.currentBalance),
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
       lines: transactions.map(t => ({
         date: t.date,
         description: t.description,

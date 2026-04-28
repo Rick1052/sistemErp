@@ -1,6 +1,7 @@
 import prisma from '../../database/prisma.js';
 import { financialRecordService } from './financialRecord.service.js';
 import logger from '../../utils/logger.js';
+import { parseDateInput } from '../../utils/date.js';
 
 export const financeIntegrationService = {
   /**
@@ -71,14 +72,14 @@ export const financeIntegrationService = {
         type: 'RECEIVABLE',
         description: instDescription,
         amount: amount,
-        dueDate: inst.dueDate ? new Date(typeof inst.dueDate === 'string' && inst.dueDate.length === 10 ? `${inst.dueDate}T12:00:00Z` : inst.dueDate) : new Date(),
-        date: sale.date || new Date(), // Herdar data da venda
+        dueDate: parseDateInput(inst.dueDate),
+        date: parseDateInput(sale.date), // Herdar data da venda
         paymentMethodId: inst.paymentMethodId,
         saleId: sale.id,
         bankAccountId,
         chequeNumber: inst.chequeNumber || null,
         chequeOwner: inst.chequeOwner || null,
-        chequeDueDate: inst.chequeDueDate ? new Date(typeof inst.chequeDueDate === 'string' && inst.chequeDueDate.length === 10 ? `${inst.chequeDueDate}T12:00:00Z` : inst.chequeDueDate) : null,
+        chequeDueDate: inst.chequeDueDate ? parseDateInput(inst.chequeDueDate) : null,
         chequeCustomerId: finalChequeCustomerId,
         chequeHistory: inst.chequeHistory || null
       };

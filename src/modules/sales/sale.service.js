@@ -5,7 +5,7 @@ import { financeIntegrationService } from "../financial/financeIntegration.servi
 import logger from '../../utils/logger.js';
 
 export const saleService = {
-  async list(companyId, { page = 1, limit = 10, startDate, endDate }) {
+  async list(companyId, { page = 1, limit = 25, startDate, endDate }) {
     const skip = (page - 1) * limit;
     const where = { companyId };
 
@@ -35,6 +35,7 @@ export const saleService = {
       meta: {
         total,
         page,
+        limit,
         totalPages: Math.ceil(total / limit),
       },
     };

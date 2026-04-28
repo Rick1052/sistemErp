@@ -33,7 +33,7 @@ export async function createProduct(companyId, tagIds, productData) {
     }, { timeout: 30000 });
 }
 
-export async function getAllProducts(companyId, { search, page = 1, limit = 10 } = {}) {
+export async function getAllProducts(companyId, { search, page = 1, limit = 25 } = {}) {
     const skip = (page - 1) * limit;
     const where = { companyId };
 

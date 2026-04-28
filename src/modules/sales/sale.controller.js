@@ -1,5 +1,8 @@
 import { saleService } from './sale.service.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
+import { parseDateInput } from '../../utils/date.js';
+import { cacheGetOrSetJSON, cacheKeyFromReq } from '../../utils/cache.js';
+import { cacheBumpVersion } from '../../utils/cache.js';
 
 export const saleController = {
   list: asyncHandler(async (req, res) => {
@@ -7,14 +10,25 @@ export const saleController = {
     const { page, limit, startDate, endDate } = req.query;
     
     const parsedPage = parseInt(page) || 1;
-    const parsedLimit = parseInt(limit) || 10;
+    const parsedLimit = parseInt(limit) || 25;
 
-    const result = await saleService.list(companyId, {
-      page: parsedPage > 0 ? parsedPage : 1,
-      limit: parsedLimit > 0 ? parsedLimit : 10,
-      startDate,
-      endDate
+    const key = await cacheKeyFromReq({
+      companyId,
+      resource: 'sales',
+      query: req.query,
     });
+
+    const result = await cacheGetOrSetJSON({
+      key,
+      ttlSeconds: 30,
+      producer: () => saleService.list(companyId, {
+        page: parsedPage > 0 ? parsedPage : 1,
+        limit: parsedLimit > 0 ? parsedLimit : 25,
+        startDate,
+        endDate
+      })
+    });
+
     return res.json(result);
   }),
 
@@ -32,7 +46,7 @@ export const saleController = {
 
     const formattedData = {
       ...rest,
-      date: date ? new Date(typeof date === 'string' && date.length === 10 ? `${date}T12:00:00Z` : date) : new Date()
+      date: parseDateInput(date)
     };
 
     // Validar se a data é válida
@@ -41,6 +55,7 @@ export const saleController = {
     }
 
     const sale = await saleService.create(companyId, userId, formattedData);
+    await cacheBumpVersion({ companyId, resource: 'sales' });
     return res.status(201).json(sale);
   }),
 
@@ -52,7 +67,7 @@ export const saleController = {
 
     const formattedData = {
       ...rest,
-      date: date ? new Date(typeof date === 'string' && date.length === 10 ? `${date}T12:00:00Z` : date) : new Date()
+      date: parseDateInput(date)
     };
 
     // Validar se a data é válida
@@ -61,6 +76,7 @@ export const saleController = {
     }
 
     const sale = await saleService.update(companyId, userId, id, formattedData);
+    await cacheBumpVersion({ companyId, resource: 'sales' });
     return res.json(sale);
   }),
 
@@ -69,6 +85,7 @@ export const saleController = {
     const { id: userId } = req.user;
     const { id } = req.params;
     const result = await saleService.delete(companyId, userId, id);
+    await cacheBumpVersion({ companyId, resource: 'sales' });
     return res.json(result);
   }),
 
@@ -78,6 +95,7 @@ export const saleController = {
     const { id } = req.params;
     const { statusId, installments } = req.body;
     const sale = await saleService.updateStatus(companyId, userId, id, statusId, installments);
+    await cacheBumpVersion({ companyId, resource: 'sales' });
     return res.json(sale);
   }),
 
@@ -86,6 +104,9 @@ export const saleController = {
     const { id: userId } = req.user;
     const { id } = req.params;
     const sale = await saleService.generateReceivables(companyId, userId, id, req.validatedBody || {});
+    await cacheBumpVersion({ companyId, resource: 'sales' });
+    await cacheBumpVersion({ companyId, resource: 'financialRecords' });
+    await cacheBumpVersion({ companyId, resource: 'bankStatement' });
     return res.json(sale);
   }),
 };

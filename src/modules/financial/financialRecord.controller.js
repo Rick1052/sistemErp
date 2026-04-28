@@ -1,10 +1,23 @@
 import { financialRecordService } from './financialRecord.service.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
+import { parseDateInput } from '../../utils/date.js';
+import { cacheBumpVersion, cacheGetOrSetJSON, cacheKeyFromReq } from '../../utils/cache.js';
 
 export const financialRecordController = {
   list: asyncHandler(async (req, res) => {
-    const records = await financialRecordService.list(req.companyId, req.query);
-    res.json(records);
+    const key = await cacheKeyFromReq({
+      companyId: req.companyId,
+      resource: 'financialRecords',
+      query: req.query,
+    });
+
+    const result = await cacheGetOrSetJSON({
+      key,
+      ttlSeconds: 30,
+      producer: () => financialRecordService.list(req.companyId, req.query),
+    });
+
+    res.json(result);
   }),
 
   getById: asyncHandler(async (req, res) => {
@@ -19,8 +32,8 @@ export const financialRecordController = {
       ...rest,
       type,
       amount: Number(amount || 0),
-      dueDate: dueDate ? new Date(typeof dueDate === 'string' && dueDate.length === 10 ? `${dueDate}T12:00:00Z` : dueDate) : new Date(),
-      date: date ? new Date(typeof date === 'string' && date.length === 10 ? `${date}T12:00:00Z` : date) : new Date()
+      dueDate: parseDateInput(dueDate),
+      date: parseDateInput(date),
     };
 
     // Regra de Cliente vs Fornecedor
@@ -46,7 +59,7 @@ export const financialRecordController = {
       }
       data.chequeNumber = chequeNumber;
       data.chequeOwner = chequeOwner;
-      data.chequeDueDate = new Date(typeof chequeDueDate === 'string' && chequeDueDate.length === 10 ? `${chequeDueDate}T12:00:00Z` : chequeDueDate);
+      data.chequeDueDate = parseDateInput(chequeDueDate);
       if (isNaN(data.chequeDueDate.getTime())) {
         return res.status(400).json({ error: 'A data do cheque (chequeDueDate) é inválida.' });
       }
@@ -56,6 +69,7 @@ export const financialRecordController = {
     }
 
     const record = await financialRecordService.create(req.companyId, data);
+    await cacheBumpVersion({ companyId: req.companyId, resource: 'financialRecords' });
     res.status(201).json(record);
   }),
 
@@ -75,7 +89,7 @@ export const financialRecordController = {
       if (!data.chequeOwner || !data.chequeDueDate) {
         return res.status(400).json({ error: 'Para atualizar ou manter um cheque, informe o titular (chequeOwner) e a data "bom para" (chequeDueDate).' });
       }
-      data.chequeDueDate = new Date(typeof data.chequeDueDate === 'string' && data.chequeDueDate.length === 10 ? `${data.chequeDueDate}T12:00:00Z` : data.chequeDueDate);
+      data.chequeDueDate = parseDateInput(data.chequeDueDate);
       if (isNaN(data.chequeDueDate.getTime())) {
         return res.status(400).json({ error: 'A data do cheque (chequeDueDate) é inválida.' });
       }
@@ -86,21 +100,26 @@ export const financialRecordController = {
     }
 
     const record = await financialRecordService.update(req.companyId, req.params.id, data);
+    await cacheBumpVersion({ companyId: req.companyId, resource: 'financialRecords' });
     res.json(record);
   }),
 
   pay: asyncHandler(async (req, res) => {
     const record = await financialRecordService.pay(req.companyId, req.params.id, req.body);
+    await cacheBumpVersion({ companyId: req.companyId, resource: 'financialRecords' });
+    await cacheBumpVersion({ companyId: req.companyId, resource: 'bankStatement' });
     res.json({ message: 'Título baixado com sucesso', record });
   }),
 
   cancel: asyncHandler(async (req, res) => {
     const record = await financialRecordService.cancel(req.companyId, req.params.id);
+    await cacheBumpVersion({ companyId: req.companyId, resource: 'financialRecords' });
     res.json({ message: 'Título cancelado com sucesso', record });
   }),
 
   delete: asyncHandler(async (req, res) => {
     await financialRecordService.delete(req.companyId, req.params.id);
+    await cacheBumpVersion({ companyId: req.companyId, resource: 'financialRecords' });
     res.status(204).send();
   }),
 };

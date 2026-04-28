@@ -20,7 +20,7 @@ export async function createClient(companyId, data) {
     return createWithSequence('client', companyId, data);
 }
 
-export async function getAllClients(companyId, { search, page = 1, limit = 10 } = {}) {
+export async function getAllClients(companyId, { search, page = 1, limit = 25 } = {}) {
     const skip = (page - 1) * limit;
     const where = { companyId };
 

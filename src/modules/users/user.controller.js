@@ -1,6 +1,7 @@
 import { userService } from './user.service.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { AppError } from '../../utils/AppError.js';
+import { cacheBumpVersion, cacheGetOrSetJSON, cacheKeyFromReq } from '../../utils/cache.js';
 
 export const userController = {
     listMembers: asyncHandler(async (req, res) => {
@@ -11,7 +12,18 @@ export const userController = {
             throw new AppError('Acesso restrito a administradores', 403);
         }
 
-        const members = await userService.listByCompany(req.companyId);
+        const key = await cacheKeyFromReq({
+            companyId: req.companyId,
+            resource: 'companyMembers',
+            query: req.query,
+        });
+
+        const members = await cacheGetOrSetJSON({
+            key,
+            ttlSeconds: 60,
+            producer: () => userService.listByCompany(req.companyId),
+        });
+
         res.json(members);
     }),
 
@@ -27,6 +39,7 @@ export const userController = {
         }
 
         const member = await userService.addMember(req.companyId, { name, email, role, password });
+        await cacheBumpVersion({ companyId: req.companyId, resource: 'companyMembers' });
         res.status(201).json(member);
     }),
 
@@ -42,6 +55,7 @@ export const userController = {
         }
 
         await userService.removeMember(req.companyId, id);
+        await cacheBumpVersion({ companyId: req.companyId, resource: 'companyMembers' });
         res.status(204).send();
     }),
 
@@ -54,6 +68,7 @@ export const userController = {
         const { name, email, role, password } = req.body;
 
         const member = await userService.updateMember(req.companyId, id, { name, email, role, password });
+        await cacheBumpVersion({ companyId: req.companyId, resource: 'companyMembers' });
         res.json(member);
     })
 };
