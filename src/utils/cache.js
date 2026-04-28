@@ -34,6 +34,27 @@ export async function cacheGetOrSetJSON({
   return value;
 }
 
+export async function cacheGetOrSetJSONWithStatus({
+  key,
+  ttlSeconds = 60,
+  producer,
+}) {
+  const redis = getRedis();
+  if (!redis) {
+    const value = await producer();
+    return { value, status: 'BYPASS' };
+  }
+
+  await ensureConnected(redis);
+
+  const cached = await redis.get(key);
+  if (cached) return { value: JSON.parse(cached), status: 'HIT' };
+
+  const value = await producer();
+  await redis.set(key, JSON.stringify(value), 'EX', ttlSeconds);
+  return { value, status: 'MISS' };
+}
+
 export async function cacheBumpVersion({ companyId, resource }) {
   const redis = getRedis();
   if (!redis) return;

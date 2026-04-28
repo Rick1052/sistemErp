@@ -1,7 +1,7 @@
 import { saleService } from './sale.service.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { parseDateInput } from '../../utils/date.js';
-import { cacheGetOrSetJSON, cacheKeyFromReq } from '../../utils/cache.js';
+import { cacheGetOrSetJSONWithStatus, cacheKeyFromReq } from '../../utils/cache.js';
 import { cacheBumpVersion } from '../../utils/cache.js';
 
 export const saleController = {
@@ -18,7 +18,7 @@ export const saleController = {
       query: req.query,
     });
 
-    const result = await cacheGetOrSetJSON({
+    const { value: result, status } = await cacheGetOrSetJSONWithStatus({
       key,
       ttlSeconds: 120,
       producer: () => saleService.list(companyId, {
@@ -29,6 +29,8 @@ export const saleController = {
       })
     });
 
+    res.setHeader('X-Cache', status);
+    res.setHeader('X-Cache-Ttl', '120');
     return res.json(result);
   }),
 

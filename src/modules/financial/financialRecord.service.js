@@ -31,19 +31,12 @@ export const financialRecordService = {
       prisma.financialRecord.findMany({
         where,
         include: {
-          bankAccount: true,
-          paymentMethod: true,
-          category: true,
+          bankAccount: { select: { id: true, name: true } },
+          paymentMethod: { select: { id: true, name: true } },
+          category: { select: { id: true, name: true } },
           sale: { select: { cod: true } },
-          client: true,
-          supplier: true,
-          payments: {
-            include: {
-              bankAccount: true,
-              paymentMethod: true,
-            },
-            orderBy: { paymentDate: 'desc' },
-          },
+          client: { select: { id: true, name: true, document: true } },
+          supplier: { select: { id: true, name: true, document: true } },
         },
         orderBy: { date: 'desc' },
         skip,

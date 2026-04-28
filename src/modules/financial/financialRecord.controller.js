@@ -1,7 +1,7 @@
 import { financialRecordService } from './financialRecord.service.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { parseDateInput } from '../../utils/date.js';
-import { cacheBumpVersion, cacheGetOrSetJSON, cacheKeyFromReq } from '../../utils/cache.js';
+import { cacheBumpVersion, cacheGetOrSetJSONWithStatus, cacheKeyFromReq } from '../../utils/cache.js';
 
 export const financialRecordController = {
   list: asyncHandler(async (req, res) => {
@@ -11,12 +11,14 @@ export const financialRecordController = {
       query: req.query,
     });
 
-    const result = await cacheGetOrSetJSON({
+    const { value: result, status } = await cacheGetOrSetJSONWithStatus({
       key,
       ttlSeconds: 120,
       producer: () => financialRecordService.list(req.companyId, req.query),
     });
 
+    res.setHeader('X-Cache', status);
+    res.setHeader('X-Cache-Ttl', '120');
     res.json(result);
   }),
 

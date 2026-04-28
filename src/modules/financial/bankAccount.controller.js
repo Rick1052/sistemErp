@@ -1,6 +1,6 @@
 import { bankAccountService } from './bankAccount.service.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
-import { cacheGetOrSetJSON, cacheKeyFromReq } from '../../utils/cache.js';
+import { cacheGetOrSetJSONWithStatus, cacheKeyFromReq } from '../../utils/cache.js';
 import { cacheBumpVersion } from '../../utils/cache.js';
 
 export const bankAccountController = {
@@ -11,12 +11,14 @@ export const bankAccountController = {
       query: req.query,
     });
 
-    const accounts = await cacheGetOrSetJSON({
+    const { value: accounts, status } = await cacheGetOrSetJSONWithStatus({
       key,
       ttlSeconds: 3600,
       producer: () => bankAccountService.list(req.companyId),
     });
 
+    res.setHeader('X-Cache', status);
+    res.setHeader('X-Cache-Ttl', '3600');
     res.json(accounts);
   }),
 
@@ -50,12 +52,14 @@ export const bankAccountController = {
       query: { ...req.query, accountId: req.params.id },
     });
 
-    const statement = await cacheGetOrSetJSON({
+    const { value: statement, status } = await cacheGetOrSetJSONWithStatus({
       key,
       ttlSeconds: 120,
       producer: () => bankAccountService.getStatement(req.companyId, req.params.id, req.query),
     });
 
+    res.setHeader('X-Cache', status);
+    res.setHeader('X-Cache-Ttl', '120');
     res.json(statement);
   }),
 };
