@@ -5,24 +5,59 @@ import { parseDateInput } from '../../utils/date.js';
 
 export const financialRecordService = {
   async list(companyId, filters = {}) {
-    const { type, status, startDate, endDate, categoryId, bankAccountId } = filters;
+    const { type, status, startDate, endDate, categoryId, bankAccountId, search } = filters;
     const page = Math.max(1, Number(filters.page ?? 1) || 1);
     const limit = Math.max(1, Math.min(100, Number(filters.limit ?? 25) || 25));
     const skip = (page - 1) * limit;
     const where = { companyId };
 
     if (type) where.type = type;
-    if (status) where.status = status;
+    if (status) {
+      const raw = String(status).trim();
+      if (raw.includes(',')) {
+        const values = raw.split(',').map((v) => v.trim()).filter(Boolean);
+        if (values.length === 1) where.status = values[0];
+        else if (values.length > 1) where.status = { in: values };
+      } else {
+        where.status = status;
+      }
+    }
     if (categoryId) where.categoryId = categoryId;
     if (bankAccountId) where.bankAccountId = bankAccountId;
 
     if (startDate || endDate) {
       where.dueDate = {};
-      if (startDate) where.dueDate.gte = new Date(startDate);
+      if (startDate) {
+        const d = parseDateInput(startDate);
+        d.setUTCHours(0, 0, 0, 0);
+        where.dueDate.gte = d;
+      }
       if (endDate) {
-        const d = new Date(endDate);
-        d.setHours(23, 59, 59, 999);
+        const d = parseDateInput(endDate);
+        d.setUTCHours(23, 59, 59, 999);
         where.dueDate.lte = d;
+      }
+    }
+
+    if (search && String(search).trim()) {
+      const s = String(search).trim();
+      const onlyDigits = s.replace(/\D/g, '');
+      const cod = Number(s);
+      const hasCod = Number.isFinite(cod) && !Number.isNaN(cod);
+
+      where.OR = [
+        { description: { contains: s, mode: 'insensitive' } },
+        { chequeNumber: { contains: s, mode: 'insensitive' } },
+        { client: { is: { name: { contains: s, mode: 'insensitive' } } } },
+        { supplier: { is: { name: { contains: s, mode: 'insensitive' } } } },
+        { client: { is: { document: { contains: onlyDigits || s, mode: 'insensitive' } } } },
+        { supplier: { is: { document: { contains: onlyDigits || s, mode: 'insensitive' } } } },
+      ];
+
+      if (hasCod) {
+        where.OR.push({ cod });
+        // procurar pelo número do pedido (venda) também
+        where.OR.push({ sale: { is: { cod } } });
       }
     }
 

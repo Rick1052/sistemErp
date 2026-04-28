@@ -7,7 +7,7 @@ import { cacheBumpVersion } from '../../utils/cache.js';
 export const saleController = {
   list: asyncHandler(async (req, res) => {
     const { companyId } = req;
-    const { page, limit, startDate, endDate } = req.query;
+    const { page, limit, startDate, endDate, search, statusId } = req.query;
     
     const parsedPage = parseInt(page) || 1;
     const parsedLimit = parseInt(limit) || 25;
@@ -25,7 +25,9 @@ export const saleController = {
         page: parsedPage > 0 ? parsedPage : 1,
         limit: parsedLimit > 0 ? parsedLimit : 25,
         startDate,
-        endDate
+        endDate,
+        search,
+        statusId,
       })
     });
 

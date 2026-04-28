@@ -3,16 +3,43 @@ import { AppError } from '../../utils/AppError.js';
 import { createWithSequence } from "../../utils/createWithSequence.js";
 import { financeIntegrationService } from "../financial/financeIntegration.service.js";
 import logger from '../../utils/logger.js';
+import { parseDateInput } from '../../utils/date.js';
 
 export const saleService = {
-  async list(companyId, { page = 1, limit = 25, startDate, endDate }) {
+  async list(companyId, { page = 1, limit = 25, startDate, endDate, search, statusId }) {
     const skip = (page - 1) * limit;
     const where = { companyId };
 
+    if (statusId) where.statusId = String(statusId);
+
     if (startDate || endDate) {
       where.date = {};
-      if (startDate) where.date.gte = new Date(startDate);
-      if (endDate) where.date.lte = new Date(endDate);
+      if (startDate) {
+        const d = parseDateInput(startDate);
+        d.setUTCHours(0, 0, 0, 0);
+        where.date.gte = d;
+      }
+      if (endDate) {
+        const d = parseDateInput(endDate);
+        d.setUTCHours(23, 59, 59, 999);
+        where.date.lte = d;
+      }
+    }
+
+    if (search) {
+      const s = String(search).trim();
+      const onlyDigits = s.replace(/\D/g, '');
+      const cod = Number(onlyDigits || s);
+      const hasCod = Number.isFinite(cod) && !Number.isNaN(cod);
+
+      where.OR = [
+        { client: { is: { name: { contains: s, mode: 'insensitive' } } } },
+        { client: { is: { document: { contains: onlyDigits || s, mode: 'insensitive' } } } },
+      ];
+
+      if (hasCod) {
+        where.OR.push({ cod });
+      }
     }
 
     const [total, sales] = await Promise.all([
