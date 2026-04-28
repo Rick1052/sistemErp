@@ -12,7 +12,7 @@ export const paymentMethodController = {
 
     const methods = await cacheGetOrSetJSON({
       key,
-      ttlSeconds: 300,
+      ttlSeconds: 3600,
       producer: () => paymentMethodService.list(req.companyId),
     });
 

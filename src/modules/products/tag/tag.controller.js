@@ -18,7 +18,7 @@ export const getAllController = asyncHandler(async (req, res) => {
 
     const tags = await cacheGetOrSetJSON({
         key,
-        ttlSeconds: 300,
+        ttlSeconds: 3600,
         producer: () => getAllTag(req.companyId),
     });
     res.status(200).json(tags);

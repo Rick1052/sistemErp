@@ -24,7 +24,7 @@ export const getAllController = asyncHandler(async (req, res) => {
 
     const payload = await cacheGetOrSetJSON({
         key,
-        ttlSeconds: 60,
+        ttlSeconds: 300,
         producer: async () => {
             const result = await getAllProducts(req.companyId, {
                 search: search ? String(search) : undefined,

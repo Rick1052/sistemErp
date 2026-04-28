@@ -12,7 +12,7 @@ export const financialCategoryController = {
 
     const categories = await cacheGetOrSetJSON({
       key,
-      ttlSeconds: 300,
+      ttlSeconds: 3600,
       producer: () => financialCategoryService.list(req.companyId),
     });
 
@@ -28,7 +28,7 @@ export const financialCategoryController = {
 
     const tree = await cacheGetOrSetJSON({
       key,
-      ttlSeconds: 300,
+      ttlSeconds: 3600,
       producer: () => financialCategoryService.getTree(req.companyId),
     });
 

@@ -12,7 +12,7 @@ export const saleStatusController = {
 
     const statuses = await cacheGetOrSetJSON({
       key,
-      ttlSeconds: 300,
+      ttlSeconds: 3600,
       producer: () => saleStatusService.list(req.companyId),
     });
 

@@ -20,7 +20,7 @@ export const userController = {
 
         const members = await cacheGetOrSetJSON({
             key,
-            ttlSeconds: 60,
+            ttlSeconds: 300,
             producer: () => userService.listByCompany(req.companyId),
         });
 

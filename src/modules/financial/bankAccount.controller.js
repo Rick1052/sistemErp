@@ -13,7 +13,7 @@ export const bankAccountController = {
 
     const accounts = await cacheGetOrSetJSON({
       key,
-      ttlSeconds: 300,
+      ttlSeconds: 3600,
       producer: () => bankAccountService.list(req.companyId),
     });
 
@@ -52,7 +52,7 @@ export const bankAccountController = {
 
     const statement = await cacheGetOrSetJSON({
       key,
-      ttlSeconds: 30,
+      ttlSeconds: 120,
       producer: () => bankAccountService.getStatement(req.companyId, req.params.id, req.query),
     });
 

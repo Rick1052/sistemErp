@@ -29,7 +29,7 @@ export const listController = asyncHandler(async (req, res) => {
 
   const result = await cacheGetOrSetJSON({
     key,
-    ttlSeconds: 60,
+    ttlSeconds: 300,
     producer: () =>
       getAllClients(req.companyId, {
         search: search ? String(search) : undefined,

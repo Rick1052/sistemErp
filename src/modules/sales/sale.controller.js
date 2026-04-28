@@ -20,7 +20,7 @@ export const saleController = {
 
     const result = await cacheGetOrSetJSON({
       key,
-      ttlSeconds: 30,
+      ttlSeconds: 120,
       producer: () => saleService.list(companyId, {
         page: parsedPage > 0 ? parsedPage : 1,
         limit: parsedLimit > 0 ? parsedLimit : 25,

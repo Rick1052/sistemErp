@@ -13,7 +13,7 @@ export const financialRecordController = {
 
     const result = await cacheGetOrSetJSON({
       key,
-      ttlSeconds: 30,
+      ttlSeconds: 120,
       producer: () => financialRecordService.list(req.companyId, req.query),
     });
 

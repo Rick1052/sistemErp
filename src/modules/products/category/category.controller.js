@@ -18,7 +18,7 @@ export const listController = asyncHandler(async (req, res) => {
 
     const categories = await cacheGetOrSetJSON({
         key,
-        ttlSeconds: 300,
+        ttlSeconds: 3600,
         producer: () => getAllCategory(req.companyId),
     });
     res.status(200).json(categories);

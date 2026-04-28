@@ -48,7 +48,7 @@ export const listController = asyncHandler(async (req, res) => {
 
     const movements = await cacheGetOrSetJSON({
         key,
-        ttlSeconds: 30,
+        ttlSeconds: 120,
         producer: () => getStockMovements(req.companyId, filters),
     });
 
