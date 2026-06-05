@@ -3,6 +3,8 @@ import { bankAccountController } from './bankAccount.controller.js';
 import { financialRecordController } from './financialRecord.controller.js';
 import { authMiddleware } from '../../middleware/auth.middleware.js';
 import { requireCompany } from '../../middleware/require.company.js';
+import { validate } from '../../middleware/validate.middleware.js';
+import { bankAccountTransferSchema } from './bankAccountTransfer.schema.js';
 
 const router = Router();
 
@@ -10,6 +12,7 @@ router.use(authMiddleware, requireCompany);
 
 // Contas Bancárias
 router.get('/accounts', bankAccountController.list);
+router.post('/accounts/transfer', validate(bankAccountTransferSchema), bankAccountController.transfer);
 router.get('/accounts/:id', bankAccountController.getById);
 router.get('/accounts/:id/statement', bankAccountController.getStatement);
 router.post('/accounts', bankAccountController.create);

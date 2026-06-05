@@ -1,4 +1,5 @@
 import prisma from '../database/prisma.js';
+import logger from '../utils/logger.js';
 
 export async function requireCompany(req, res, next) {
   if (!req.companyId) {

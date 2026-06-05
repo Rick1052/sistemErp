@@ -45,6 +45,16 @@ export const bankAccountController = {
     res.status(204).send();
   }),
 
+  transfer: asyncHandler(async (req, res) => {
+    const result = await bankAccountService.transferBetweenAccounts(
+      req.companyId,
+      req.validatedBody || req.body
+    );
+    await cacheBumpVersion({ companyId: req.companyId, resource: 'bankAccounts' });
+    await cacheBumpVersion({ companyId: req.companyId, resource: 'bankStatement' });
+    res.status(200).json(result);
+  }),
+
   getStatement: asyncHandler(async (req, res) => {
     const key = await cacheKeyFromReq({
       companyId: req.companyId,

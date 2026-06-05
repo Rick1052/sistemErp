@@ -565,6 +565,9 @@ model BankAccount {
   companyId      String
   company        Company  @relation(fields: [companyId], references: [id])
   name           String
+  bankName       String?
+  /// BANK = conta bancária, CASH = caixa físico (mesmos valores enviados pelo front como `type`)
+  accountKind    String   @default("BANK")
   initialBalance Decimal  @default(0) @db.Decimal(15, 2)
   currentBalance Decimal  @default(0) @db.Decimal(15, 2)
   status         Status   @default(ACTIVE)
