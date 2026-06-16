@@ -1,56 +1,22 @@
 import prisma from '../../database/prisma.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { AppError } from '../../utils/AppError.js';
+import { productSalesReportService } from './productSalesReport.service.js';
+import { salesReportService } from './salesReport.service.js';
+import { commercialSalesReportService } from './commercialSalesReport.service.js';
 
 export const reportController = {
   /**
    * 1. RELATÓRIO DE VENDAS (GET /api/reports/sales)
    */
   getSalesReport: asyncHandler(async (req, res) => {
-    const { startDate, endDate, statusId } = req.query;
-    const companyId = req.companyId;
+    const result = await salesReportService.getFullReport(req.companyId, req.query);
+    res.json(result);
+  }),
 
-    const where = {
-      companyId,
-      date: {
-        gte: startDate ? new Date(startDate) : undefined,
-        lte: endDate ? (() => {
-          const d = new Date(endDate);
-          d.setHours(23, 59, 59, 999);
-          return d;
-        })() : undefined,
-      },
-      statusId: statusId || undefined,
-    };
-
-    // Busca os dados das vendas
-    const sales = await prisma.sale.findMany({
-      where,
-      include: {
-        client: true,
-        status: true,
-      },
-      orderBy: { date: 'desc' },
-    });
-
-    // Agregação otimizada usando Prisma
-    const aggregation = await prisma.sale.aggregate({
-      where,
-      _count: {
-        id: true,
-      },
-      _sum: {
-        total: true,
-      },
-    });
-
-    res.json({
-      data: sales,
-      summary: {
-        totalSales: Number(aggregation._count.id || 0),
-        totalAmount: Number(aggregation._sum.total || 0),
-      },
-    });
+  getCommercialSalesReport: asyncHandler(async (req, res) => {
+    const result = await commercialSalesReportService.getFullReport(req.companyId, req.query);
+    res.json(result);
   }),
 
   /**
@@ -335,6 +301,11 @@ export const reportController = {
   /**
    * 5. RELATÓRIO DE CHEQUES (GET /api/reports/cheques)
    */
+  getProductSalesReport: asyncHandler(async (req, res) => {
+    const result = await productSalesReportService.getFullReport(req.companyId, req.query);
+    res.json(result);
+  }),
+
   getChequesReport: asyncHandler(async (req, res) => {
     const { startDate, endDate, status, clientName } = req.query;
     const companyId = req.companyId;

@@ -9,10 +9,27 @@ function stableStringify(obj) {
 }
 
 async function ensureConnected(r) {
-  if (!r) return;
-  if (r.status === 'ready') return;
-  // ioredis conecta sob demanda, mas garantimos para reduzir latência no primeiro hit
-  await r.connect().catch(() => {});
+  if (!r) return false;
+  if (r.status === 'ready') return true;
+  try {
+    await r.connect();
+    return r.status === 'ready';
+  } catch {
+    return false;
+  }
+}
+
+async function withRedisFallback(fallback, operation) {
+  const redis = getRedis();
+  if (!redis) return fallback();
+
+  try {
+    const connected = await ensureConnected(redis);
+    if (!connected) return fallback();
+    return await operation(redis);
+  } catch {
+    return fallback();
+  }
 }
 
 export async function cacheGetOrSetJSON({
@@ -20,18 +37,14 @@ export async function cacheGetOrSetJSON({
   ttlSeconds = 60,
   producer,
 }) {
-  const redis = getRedis();
-  if (!redis) return producer();
+  return withRedisFallback(producer, async (redis) => {
+    const cached = await redis.get(key);
+    if (cached) return JSON.parse(cached);
 
-  await ensureConnected(redis);
-
-  const cached = await redis.get(key);
-  if (cached) return JSON.parse(cached);
-
-  const value = await producer();
-  // Cachea apenas respostas serializáveis
-  await redis.set(key, JSON.stringify(value), 'EX', ttlSeconds);
-  return value;
+    const value = await producer();
+    await redis.set(key, JSON.stringify(value), 'EX', ttlSeconds);
+    return value;
+  });
 }
 
 export async function cacheGetOrSetJSONWithStatus({
@@ -39,35 +52,33 @@ export async function cacheGetOrSetJSONWithStatus({
   ttlSeconds = 60,
   producer,
 }) {
-  const redis = getRedis();
-  if (!redis) {
-    const value = await producer();
-    return { value, status: 'BYPASS' };
-  }
+  return withRedisFallback(
+    async () => ({ value: await producer(), status: 'BYPASS' }),
+    async (redis) => {
+      const cached = await redis.get(key);
+      if (cached) return { value: JSON.parse(cached), status: 'HIT' };
 
-  await ensureConnected(redis);
-
-  const cached = await redis.get(key);
-  if (cached) return { value: JSON.parse(cached), status: 'HIT' };
-
-  const value = await producer();
-  await redis.set(key, JSON.stringify(value), 'EX', ttlSeconds);
-  return { value, status: 'MISS' };
+      const value = await producer();
+      await redis.set(key, JSON.stringify(value), 'EX', ttlSeconds);
+      return { value, status: 'MISS' };
+    }
+  );
 }
 
 export async function cacheBumpVersion({ companyId, resource }) {
-  const redis = getRedis();
-  if (!redis) return;
-  await ensureConnected(redis);
-  await redis.incr(`v:${resource}:c:${companyId}`);
+  await withRedisFallback(async () => undefined, async (redis) => {
+    await redis.incr(`v:${resource}:c:${companyId}`);
+  });
 }
 
 export async function cacheGetVersion({ companyId, resource }) {
-  const redis = getRedis();
-  if (!redis) return 0;
-  await ensureConnected(redis);
-  const v = await redis.get(`v:${resource}:c:${companyId}`);
-  return Number(v || 0);
+  return withRedisFallback(
+    async () => 0,
+    async (redis) => {
+      const v = await redis.get(`v:${resource}:c:${companyId}`);
+      return Number(v || 0);
+    }
+  );
 }
 
 export async function cacheKeyFromReq({

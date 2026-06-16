@@ -8,5 +8,6 @@ const router = Router();
 router.use(authMiddleware, requireCompany);
 
 router.get('/dre', reportController.getDRE);
+router.get('/dre/drill-down', reportController.getDREDrillDown);
 
 export default router;

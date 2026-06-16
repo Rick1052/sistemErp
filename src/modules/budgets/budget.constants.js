@@ -1,0 +1,24 @@
+export const BUDGET_STATUS_LABELS = {
+  DRAFT: 'Rascunho',
+  OPEN: 'Em Aberto',
+  SENT: 'Enviado',
+  NEGOTIATION: 'Em Negociação',
+  APPROVED: 'Aprovado',
+  REJECTED: 'Rejeitado',
+  CONVERTED: 'Convertido em Venda',
+  EXPIRED: 'Expirado',
+};
+
+export const BUDGET_HISTORY_ACTIONS = {
+  CREATED: 'CREATED',
+  UPDATED: 'UPDATED',
+  SENT: 'SENT',
+  APPROVED: 'APPROVED',
+  REJECTED: 'REJECTED',
+  CONVERTED: 'CONVERTED',
+  CANCELLED: 'CANCELLED',
+  STATUS_CHANGED: 'STATUS_CHANGED',
+  EXPIRED: 'EXPIRED',
+};
+
+export const TERMINAL_STATUSES = ['CONVERTED', 'REJECTED', 'EXPIRED'];

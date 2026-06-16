@@ -9,6 +9,8 @@ const router = Router();
 router.use(authMiddleware, requireCompany);
 
 router.get('/sales', reportController.getSalesReport);
+router.get('/commercial-sales', reportController.getCommercialSalesReport);
+router.get('/product-sales', reportController.getProductSalesReport);
 router.get('/financial', reportController.getFinancialReport);
 router.get('/bank-statement', reportController.getBankStatement);
 router.get('/dre', reportController.getDREReport);

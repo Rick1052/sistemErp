@@ -15,6 +15,7 @@ import tagProduct from './modules/products/tag/tag.routes.js'
 import warehouseProduct from './modules/products/warehouse/warehouse.routes.js'
 import product from './modules/products/product/product.routes.js'
 import sale from './modules/sales/sale.routes.js'
+import budgetRoutes from './modules/budgets/budget.routes.js'
 import saleStatus from './modules/sales/saleStatus.routes.js'
 import productInventory from './modules/products/productInventory/pdInventory.routes.js'
 import productTax from './modules/products/productTax/pdTax.routes.js'
@@ -67,6 +68,7 @@ app.use('/api/products/tag', tagProduct)
 app.use('/api/products/warehouse', warehouseProduct)
 app.use('/api/products', product)
 app.use('/api/sales', sale)
+app.use('/api/budgets', budgetRoutes)
 app.use('/api/sale-statuses', saleStatus)
 app.use('/api/products/products-inventory', productInventory)
 app.use('/api/products/product-tax', productTax)

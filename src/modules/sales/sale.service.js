@@ -75,6 +75,7 @@ export const saleService = {
       include: {
         client: true,
         status: true,
+        chequeCustomer: { select: { id: true, name: true, document: true } },
         items: {
           include: {
             product: { select: { id: true, description: true, code: true } },

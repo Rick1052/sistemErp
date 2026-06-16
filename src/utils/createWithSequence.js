@@ -15,6 +15,8 @@ const sequenceMap = {
     sale: 'saleSeq',
     saleItem: 'saleItemSeq',
     saleStatus: 'saleStatusSeq',
+    budget: 'budgetSeq',
+    budgetItem: 'budgetItemSeq',
     bankAccount: 'accountSeq',
     paymentMethod: 'paymentMethodSeq',
     financialCategory: 'financialCategorySeq',

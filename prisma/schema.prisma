@@ -83,6 +83,8 @@ model User {
   companies      UserCompany[]
   refreshTokens  RefreshToken[]
   stockMovements StockMovement[]
+  budgetsSold    Budget[]        @relation("BudgetSeller")
+  budgetHistory  BudgetHistory[]
 }
 
 model Company {
@@ -108,6 +110,7 @@ model Company {
   stockMovements StockMovement[]
   sales          Sale[]
   saleStatuses   SaleStatus[]
+  budgets        Budget[]
 
   bankAccounts        BankAccount[]
   paymentMethods      PaymentMethod[]
@@ -144,6 +147,8 @@ model CompanySequence {
   saleSeq          Int @default(0)
   saleItemSeq      Int @default(0)
   saleStatusSeq    Int @default(0)
+  budgetSeq        Int @default(0)
+  budgetItemSeq    Int @default(0)
 
   accountSeq           Int @default(0)
   paymentMethodSeq     Int @default(0)
@@ -207,6 +212,7 @@ model Client {
   updatedAt DateTime @updatedAt
 
   sales Sale[]
+  budgets Budget[]
   cheques FinancialRecord[] @relation("ChequeCustomer")
   financialRecords FinancialRecord[] @relation("FinancialClient")
 
@@ -378,7 +384,8 @@ model Product {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  saleItems SaleItem[]
+  saleItems   SaleItem[]
+  budgetItems BudgetItem[]
 
   @@unique([companyId, cod])
   @@index([companyId])
@@ -511,6 +518,8 @@ model Sale {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  budget Budget?
+
   @@unique([companyId, cod])
   @@index([companyId])
 }
@@ -553,6 +562,109 @@ model SaleStatus {
 
   @@unique([companyId, name])
   @@index([companyId])
+}
+
+//////////////////////////////////////////////////////
+// BUDGETS (ORÇAMENTOS)
+//////////////////////////////////////////////////////
+
+enum BudgetStatus {
+  DRAFT
+  OPEN
+  SENT
+  NEGOTIATION
+  APPROVED
+  REJECTED
+  CONVERTED
+  EXPIRED
+}
+
+model Budget {
+  id        String       @id @default(uuid())
+  cod       Int
+  companyId String
+  company   Company      @relation(fields: [companyId], references: [id])
+  clientId  String
+  client    Client       @relation(fields: [clientId], references: [id])
+  sellerId  String?
+  seller    User?        @relation("BudgetSeller", fields: [sellerId], references: [id])
+
+  status BudgetStatus @default(DRAFT)
+
+  date       DateTime  @default(now())
+  validUntil DateTime?
+
+  subtotal Decimal @db.Decimal(15, 2)
+  discount Decimal @default(0) @db.Decimal(15, 2)
+  freight  Decimal @default(0) @db.Decimal(15, 2)
+  total    Decimal @db.Decimal(15, 2)
+
+  notes        String?
+  paymentTerms String?
+
+  paymentMethodId String?
+  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+
+  leadOrigin      String?
+  competitor      String?
+  lossReason      String?
+  commercialNotes String?
+
+  convertedSaleId String? @unique
+  convertedSale   Sale?   @relation(fields: [convertedSaleId], references: [id])
+
+  sentAt         DateTime?
+  lastFollowUpAt DateTime?
+
+  items   BudgetItem[]
+  history BudgetHistory[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, cod])
+  @@index([companyId])
+  @@index([clientId])
+  @@index([sellerId])
+  @@index([status])
+  @@index([validUntil])
+}
+
+model BudgetItem {
+  id        String  @id @default(uuid())
+  cod       Int
+  companyId String
+  budgetId  String
+  budget    Budget  @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  quantity  Int
+  unitPrice Decimal @db.Decimal(15, 2)
+  discount  Decimal @default(0) @db.Decimal(15, 2)
+  total     Decimal @db.Decimal(15, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, cod])
+  @@index([companyId])
+  @@index([budgetId])
+}
+
+model BudgetHistory {
+  id       String  @id @default(uuid())
+  budgetId String
+  budget   Budget  @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  userId   String?
+  user     User?   @relation(fields: [userId], references: [id])
+
+  action  String
+  message String
+
+  createdAt DateTime @default(now())
+
+  @@index([budgetId])
 }
 
 //////////////////////////////////////////////////////
@@ -604,6 +716,7 @@ model PaymentMethod {
 
   financialRecords FinancialRecord[]
   sales            Sale[]
+  budgets          Budget[]
   financialRecordPayments FinancialRecordPayment[]
 
   @@unique([companyId, cod])

@@ -46,4 +46,8 @@ router.patch('/records/:id/pay', financialRecordController.pay);
 router.patch('/records/:id/cancel', financialRecordController.cancel);
 router.delete('/records/:id', financialRecordController.delete);
 
+// Relatórios Financeiros
+import reportRoutes from './report.routes.js';
+router.use('/reports', reportRoutes);
+
 export default router;
