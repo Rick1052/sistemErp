@@ -30,15 +30,28 @@ import { globalErrorHandler } from './middleware/error.middleware.js'
 
 const app = express()
 
+/** Origens padrão do ERP Cerâmica Marim (produção) */
+const PRODUCTION_ORIGINS = [
+  'https://erp.ceramicamm.com.br',
+  'https://www.erp.ceramicamm.com.br',
+];
+
+const LOCAL_ORIGINS = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+];
+
 function parseAllowedOrigins() {
-  const raw = process.env.ALLOWED_ORIGINS || '';
-  const origins = raw
+  const fromEnv = (process.env.ALLOWED_ORIGINS || '')
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);
 
+  const origins = [...fromEnv, ...PRODUCTION_ORIGINS];
+
   if (process.env.NODE_ENV !== 'production') {
-    origins.push('http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173');
+    origins.push(...LOCAL_ORIGINS);
   }
 
   return [...new Set(origins)];
@@ -46,26 +59,42 @@ function parseAllowedOrigins() {
 
 const allowedOrigins = parseAllowedOrigins();
 
-// Security & Optimization Middlewares
-app.use(helmet())
-app.use(cors({
+const corsOptions = {
   origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
+    // Sem Origin: Postman, apps mobile, health checks
+    if (!origin) {
       return callback(null, true);
     }
-    logger.warn({ msg: 'CORS bloqueado', origin });
-    return callback(new Error('Origem não permitida pelo CORS'));
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    logger.warn({ msg: 'CORS bloqueado', origin, allowedOrigins });
+    // Nunca passar Error — quebra o preflight OPTIONS com 500 sem headers CORS
+    return callback(null, false);
   },
   credentials: true,
+  methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  optionsSuccessStatus: 204,
+};
+
+// Security & Optimization Middlewares
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
 }))
+app.use(cors(corsOptions))
+app.options('*', cors(corsOptions))
 app.use(compression())
 app.use(express.json())
 
-// Rate Limiting
+// Rate Limiting (ignora preflight OPTIONS)
 const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // limit each IP to 100 requests per windowMs
-    message: 'Muitas requisições deste IP, tente novamente após 15 minutos'
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+    message: 'Muitas requisições deste IP, tente novamente após 15 minutos',
+    skip: (req) => req.method === 'OPTIONS',
 })
 app.use('/api/', limiter)
 
