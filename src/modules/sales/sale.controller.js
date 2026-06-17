@@ -46,7 +46,7 @@ export const saleController = {
   create: asyncHandler(async (req, res) => {
     const { companyId } = req;
     const { id: userId } = req.user;
-    const { date, ...rest } = req.body;
+    const { date, ...rest } = req.validatedBody ?? req.body;
 
     const formattedData = {
       ...rest,
@@ -67,7 +67,7 @@ export const saleController = {
     const { companyId } = req;
     const { id: userId } = req.user;
     const { id } = req.params;
-    const { date, ...rest } = req.body;
+    const { date, ...rest } = req.validatedBody ?? req.body;
 
     const formattedData = {
       ...rest,

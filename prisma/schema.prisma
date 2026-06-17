@@ -213,6 +213,7 @@ model Client {
 
   sales Sale[]
   budgets Budget[]
+  saleCheques Sale[] @relation("SaleChequeCustomer")
   cheques FinancialRecord[] @relation("ChequeCustomer")
   financialRecords FinancialRecord[] @relation("FinancialClient")
 
@@ -512,6 +513,7 @@ model Sale {
   chequeOwner      String?
   chequeDueDate    DateTime?
   chequeCustomerId String?
+  chequeCustomer   Client? @relation("SaleChequeCustomer", fields: [chequeCustomerId], references: [id])
   chequeHistory    String?
 
   date      DateTime @default(now())
