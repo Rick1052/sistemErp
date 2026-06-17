@@ -150,6 +150,10 @@ export const saleService = {
         }, tx);
 
         // 3. Create items and handle stock action
+        const warehouse = saleStatus.stockAction !== 'NONE'
+          ? await saleService._resolveWarehouse(tx, companyId)
+          : null;
+
         for (const item of items) {
           const itemTotal = (item.unitPrice - (item.discount || 0)) * item.quantity;
 
@@ -162,7 +166,7 @@ export const saleService = {
             total: itemTotal,
           }, tx);
 
-          await saleService._applyStockAction(tx, companyId, userId, sale, item, saleStatus.stockAction);
+          await saleService._applyStockAction(tx, companyId, userId, sale, item, saleStatus.stockAction, warehouse);
         }
 
         // 4. Generate financial record if status is COMMIT
@@ -223,8 +227,12 @@ export const saleService = {
         if (!oldSale) throw new AppError('Venda não encontrada', 404);
 
         // 1. Rollback old stock actions
+        const rollbackWarehouse = oldSale.status.stockAction !== 'NONE'
+          ? await saleService._resolveWarehouse(tx, companyId)
+          : null;
+
         for (const item of oldSale.items) {
-          await saleService._rollbackStockAction(tx, companyId, userId, oldSale, item, oldSale.status.stockAction);
+          await saleService._rollbackStockAction(tx, companyId, userId, oldSale, item, oldSale.status.stockAction, false, rollbackWarehouse);
         }
 
         // 2. Delete old items
@@ -273,6 +281,10 @@ export const saleService = {
         });
 
         // 6. Create new items and apply new stock actions
+        const applyWarehouse = newStatus.stockAction !== 'NONE'
+          ? await saleService._resolveWarehouse(tx, companyId)
+          : null;
+
         for (const item of items) {
           const itemTotal = (item.unitPrice - (item.discount || 0)) * item.quantity;
 
@@ -285,7 +297,7 @@ export const saleService = {
             total: itemTotal,
           }, tx);
 
-          await saleService._applyStockAction(tx, companyId, userId, updatedSale, item, newStatus.stockAction);
+          await saleService._applyStockAction(tx, companyId, userId, updatedSale, item, newStatus.stockAction, applyWarehouse);
         }
 
         // 7. Generate financial record if status is COMMIT and it wasn't COMMIT before
@@ -341,8 +353,12 @@ export const saleService = {
         }
 
         // Rollback stock actions (RESERVE)
+        const rollbackWarehouse = sale.status.stockAction !== 'NONE'
+          ? await saleService._resolveWarehouse(tx, companyId)
+          : null;
+
         for (const item of sale.items) {
-          await saleService._rollbackStockAction(tx, companyId, userId, sale, item, sale.status.stockAction);
+          await saleService._rollbackStockAction(tx, companyId, userId, sale, item, sale.status.stockAction, false, rollbackWarehouse);
         }
 
         // Delete items and sale
@@ -358,11 +374,16 @@ export const saleService = {
   },
 
   // Helper methodologies for Stock Actions
-  async _applyStockAction(tx, companyId, userId, sale, item, action) {
-    if (action === 'NONE') return;
-
+  async _resolveWarehouse(tx, companyId) {
     const warehouse = await tx.warehouse.findFirst({ where: { companyId } });
     if (!warehouse) throw new AppError('Depósito não encontrado.', 400);
+    return warehouse;
+  },
+
+  async _applyStockAction(tx, companyId, userId, sale, item, action, warehouse = null) {
+    if (action === 'NONE') return;
+
+    const resolvedWarehouse = warehouse || await saleService._resolveWarehouse(tx, companyId);
 
     if (action === 'RESERVE') {
       await tx.product.update({
@@ -377,7 +398,7 @@ export const saleService = {
         quantity: item.quantity,
         reason: `Reserva Pedido ${sale.cod}`,
         documentRef: String(sale.cod),
-        warehouseId: warehouse.id
+        warehouseId: resolvedWarehouse.id
       }, tx);
     }
 
@@ -397,16 +418,15 @@ export const saleService = {
         quantity: item.quantity,
         reason: `Venda Direta Pedido ${sale.cod}`,
         documentRef: String(sale.cod),
-        warehouseId: warehouse.id
+        warehouseId: resolvedWarehouse.id
       }, tx);
     }
   },
 
-  async _rollbackStockAction(tx, companyId, userId, sale, item, action, allowCommitRollback = false) {
+  async _rollbackStockAction(tx, companyId, userId, sale, item, action, allowCommitRollback = false, warehouse = null) {
     if (action === 'NONE') return;
 
-    const warehouse = await tx.warehouse.findFirst({ where: { companyId } });
-    if (!warehouse) throw new AppError('Depósito não encontrado.', 400);
+    const resolvedWarehouse = warehouse || await saleService._resolveWarehouse(tx, companyId);
 
     if (action === 'RESERVE') {
       await tx.product.update({
@@ -421,7 +441,7 @@ export const saleService = {
         quantity: item.quantity,
         reason: `Estorno Reserva Pedido ${sale.cod}`,
         documentRef: String(sale.cod),
-        warehouseId: warehouse.id
+        warehouseId: resolvedWarehouse.id
       }, tx);
     }
     
@@ -442,7 +462,7 @@ export const saleService = {
         quantity: item.quantity,
         reason: `Estorno Venda Pedido ${sale.cod}`,
         documentRef: String(sale.cod),
-        warehouseId: warehouse.id
+        warehouseId: resolvedWarehouse.id
       }, tx);
     }
   },
@@ -494,6 +514,10 @@ export const saleService = {
         }
 
         // 1. Reverter ação de estoque ANTIGA
+        const rollbackWarehouse = oldStatus.stockAction !== 'NONE'
+          ? await saleService._resolveWarehouse(tx, companyId)
+          : null;
+
         if (sale.items && sale.items.length > 0) {
           logger.info(`[saleService.updateStatus] Revertendo estoque para ${sale.items.length} itens (Ação: ${oldStatus.stockAction})`);
           for (const item of sale.items) {
@@ -501,15 +525,19 @@ export const saleService = {
               logger.error(`[saleService.updateStatus] Tentativa de reverter status COMMIT na venda ${id}`);
               throw new AppError(`Não é permitido alterar status de um pedido já '${oldStatus.name}' (baixado) sem ser para reabertura ('Em Aberto') ou cancelamento.`, 400);
             }
-            await saleService._rollbackStockAction(tx, companyId, userId, sale, item, oldStatus.stockAction, isReopening);
+            await saleService._rollbackStockAction(tx, companyId, userId, sale, item, oldStatus.stockAction, isReopening, rollbackWarehouse);
           }
         }
 
         // 2. Aplicar ação de estoque NOVA
+        const applyWarehouse = newStatus.stockAction !== 'NONE'
+          ? await saleService._resolveWarehouse(tx, companyId)
+          : null;
+
         if (sale.items && sale.items.length > 0) {
           logger.info(`[saleService.updateStatus] Aplicando novo estoque para ${sale.items.length} itens (Ação: ${newStatus.stockAction})`);
           for (const item of sale.items) {
-            await saleService._applyStockAction(tx, companyId, userId, sale, item, newStatus.stockAction);
+            await saleService._applyStockAction(tx, companyId, userId, sale, item, newStatus.stockAction, applyWarehouse);
           }
         }
 

@@ -1,5 +1,6 @@
 import express from 'express'
 import cors from 'cors'
+import helmet from 'helmet'
 import compression from 'compression'
 import rateLimit from 'express-rate-limit'
 import morgan from 'morgan'
@@ -23,13 +24,40 @@ import stockMovement from './modules/products/stockMovement/stockMovement.routes
 import financialRoutes from './modules/financial/financial.routes.js'
 import reportRoutes from './modules/reports/report.routes.js'
 import userRoutes from './modules/users/user.routes.js'
+import dashboardRoutes from './modules/dashboard/dashboard.routes.js'
 
 import { globalErrorHandler } from './middleware/error.middleware.js'
 
 const app = express()
 
+function parseAllowedOrigins() {
+  const raw = process.env.ALLOWED_ORIGINS || '';
+  const origins = raw
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+
+  if (process.env.NODE_ENV !== 'production') {
+    origins.push('http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173');
+  }
+
+  return [...new Set(origins)];
+}
+
+const allowedOrigins = parseAllowedOrigins();
+
 // Security & Optimization Middlewares
-app.use(cors())
+app.use(helmet())
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    logger.warn({ msg: 'CORS bloqueado', origin });
+    return callback(new Error('Origem não permitida pelo CORS'));
+  },
+  credentials: true,
+}))
 app.use(compression())
 app.use(express.json())
 
@@ -59,6 +87,7 @@ app.get('/api', (req, res) => {
 app.use('/api/auth', authRoutes)
 app.use('/api/company', companyRoutes)
 app.use('/api/clients', clientRoutes)
+app.use('/api/dashboard', dashboardRoutes)
 
 // Router Products
 app.use('/api/products/category', categoryProduct)

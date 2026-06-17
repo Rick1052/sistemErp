@@ -5,11 +5,11 @@ import { AppError } from '../../utils/AppError.js'; // Importando nossa nova cla
 
 // ===== TOKEN HELPERS =====
 function generateAccessToken(payload) {
-  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15h' });
+  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
 }
 
 function generateRefreshToken(payload) {
-  return jwt.sign(payload, process.env.JWT_REFRESH_SECRET, { expiresIn: '15h' });
+  return jwt.sign(payload, process.env.JWT_REFRESH_SECRET, { expiresIn: '30d' });
 }
 
 // ===== LOGIN =====
@@ -141,13 +141,22 @@ export async function refreshUserToken(token) {
       id: user.id,
       email: user.email,
       companyId: relation?.companyId || null,
-      role: relation?.role || null
+      role: relation?.role || null,
     });
 
-    return { accessToken: newAccessToken };
+    const newRefreshToken = generateRefreshToken({ id: user.id });
+
+    await prisma.refreshToken.delete({ where: { token } });
+    await prisma.refreshToken.create({
+      data: {
+        token: newRefreshToken,
+        userId: user.id,
+      },
+    });
+
+    return { accessToken: newAccessToken, refreshToken: newRefreshToken };
 
   } catch (err) {
-    // Se o JWT falhar na verificação (expirou os 7 dias ou é falso)
     throw new AppError('Token inválido ou expirado', 401);
   }
 }

@@ -49,16 +49,18 @@ export const budgetController = {
   }),
 
   create: asyncHandler(async (req, res) => {
-    const { companyId, userRole } = req;
+    const { companyId } = req;
     const { id: userId } = req.user;
-    const budget = await budgetService.create(companyId, userId, req.body);
+    const body = req.validatedBody ?? req.body;
+    const budget = await budgetService.create(companyId, userId, body);
     return res.status(201).json(budget);
   }),
 
   update: asyncHandler(async (req, res) => {
     const { companyId } = req;
     const { id: userId } = req.user;
-    const budget = await budgetService.update(companyId, userId, req.params.id, req.body);
+    const body = req.validatedBody ?? req.body;
+    const budget = await budgetService.update(companyId, userId, req.params.id, body);
     return res.json(budget);
   }),
 
