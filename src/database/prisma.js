@@ -8,10 +8,10 @@ import { PrismaPg } from '@prisma/adapter-pg'
 import pg from 'pg'
 import logger from '../utils/logger.js'
 
-const databaseUrl = process.env.DATABASE_URL || process.env.DIRECT_URL
+const databaseUrl = process.env.DIRECT_URL || process.env.DATABASE_URL
 
 if (!databaseUrl) {
-    logger.error('DATABASE_URL or DIRECT_URL is missing in environment variables')
+    logger.error('DIRECT_URL or DATABASE_URL is missing in environment variables')
 }
 
 let pool

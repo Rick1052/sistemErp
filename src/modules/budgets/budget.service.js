@@ -3,6 +3,7 @@ import { AppError } from '../../utils/AppError.js';
 import { createWithSequence } from '../../utils/createWithSequence.js';
 import { parseDateInput } from '../../utils/date.js';
 import { saleService } from '../sales/sale.service.js';
+import logger from '../../utils/logger.js';
 import {
   BUDGET_HISTORY_ACTIONS,
   BUDGET_STATUS_LABELS,
@@ -161,7 +162,9 @@ export const budgetService = {
 
   async getById(companyId, id, tx = null) {
     const client = tx || prisma;
-    await expireOverdueBudgets(companyId, client);
+    if (!tx) {
+      await expireOverdueBudgets(companyId, client);
+    }
 
     const budget = await client.budget.findFirst({
       where: { id, companyId },
@@ -197,58 +200,72 @@ export const budgetService = {
 
     const totals = calcTotals(items, discount, freight);
 
-    return prisma.$transaction(async (tx) => {
-      const budget = await createWithSequence(
-        'budget',
-        companyId,
-        {
-          clientId,
-          sellerId: sellerId || userId,
-          status,
-          date: date ? parseDateInput(date) : new Date(),
-          validUntil: validUntil ? parseDateInput(validUntil) : null,
-          subtotal: totals.subtotal,
-          discount: totals.discount,
-          freight: totals.freight,
-          total: totals.total,
-          notes,
-          paymentTerms,
-          paymentMethodId: paymentMethodId || null,
-          leadOrigin,
-          competitor,
-          lossReason,
-          commercialNotes,
-        },
-        tx
-      );
-
-      for (const item of items) {
-        const itemTotal = (item.unitPrice - (item.discount || 0)) * item.quantity;
-        await createWithSequence(
-          'budgetItem',
+    try {
+      const budgetId = await prisma.$transaction(async (tx) => {
+        const budget = await createWithSequence(
+          'budget',
           companyId,
           {
-            budgetId: budget.id,
-            productId: item.productId,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            discount: item.discount || 0,
-            total: itemTotal,
+            clientId,
+            sellerId: sellerId || userId,
+            status,
+            date: date ? parseDateInput(date) : new Date(),
+            validUntil: validUntil ? parseDateInput(validUntil) : null,
+            subtotal: totals.subtotal,
+            discount: totals.discount,
+            freight: totals.freight,
+            total: totals.total,
+            notes,
+            paymentTerms,
+            paymentMethodId: paymentMethodId || null,
+            leadOrigin,
+            competitor,
+            lossReason,
+            commercialNotes,
           },
           tx
         );
-      }
 
-      await addHistory(
-        tx,
-        budget.id,
+        for (const item of items) {
+          const itemTotal = (item.unitPrice - (item.discount || 0)) * item.quantity;
+          await createWithSequence(
+            'budgetItem',
+            companyId,
+            {
+              budgetId: budget.id,
+              productId: item.productId,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              discount: item.discount || 0,
+              total: itemTotal,
+            },
+            tx
+          );
+        }
+
+        await addHistory(
+          tx,
+          budget.id,
+          userId,
+          BUDGET_HISTORY_ACTIONS.CREATED,
+          `Orçamento nº ${budget.cod} criado`
+        );
+
+        return budget.id;
+      });
+
+      return budgetService.getById(companyId, budgetId);
+    } catch (error) {
+      logger.error({
+        msg: 'ERRO CRÍTICO NA CRIAÇÃO DE ORÇAMENTO',
+        error: error.message,
+        code: error.code,
+        stack: error.stack,
+        companyId,
         userId,
-        BUDGET_HISTORY_ACTIONS.CREATED,
-        `Orçamento nº ${budget.cod} criado`
-      );
-
-      return budgetService.getById(companyId, budget.id, tx);
-    });
+      });
+      throw error;
+    }
   },
 
   async update(companyId, userId, id, data) {
@@ -277,7 +294,7 @@ export const budgetService = {
 
     const totals = calcTotals(items, discount, freight);
 
-    return prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       await tx.budgetItem.deleteMany({ where: { budgetId: id, companyId } });
 
       await tx.budget.update({
@@ -325,9 +342,9 @@ export const budgetService = {
         BUDGET_HISTORY_ACTIONS.UPDATED,
         `Orçamento nº ${existing.cod} alterado`
       );
-
-      return budgetService.getById(companyId, id, tx);
     });
+
+    return budgetService.getById(companyId, id);
   },
 
   async updateStatus(companyId, userId, id, { status, lossReason, commercialNotes }) {
@@ -343,7 +360,7 @@ export const budgetService = {
     if (lossReason !== undefined) data.lossReason = lossReason;
     if (commercialNotes !== undefined) data.commercialNotes = commercialNotes;
 
-    return prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       await tx.budget.update({ where: { id }, data });
 
       const label = BUDGET_STATUS_LABELS[status] || status;
@@ -362,8 +379,9 @@ export const budgetService = {
       }
 
       await addHistory(tx, id, userId, action, message);
-      return budgetService.getById(companyId, id, tx);
     });
+
+    return budgetService.getById(companyId, id);
   },
 
   async delete(companyId, id) {
