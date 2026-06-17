@@ -416,7 +416,7 @@ export const budgetService = {
       clientId: budget.clientId,
       statusId: defaultStatus.id,
       paymentMethodId: budget.paymentMethodId || undefined,
-      date: new Date().toISOString().slice(0, 10),
+      date: parseDateInput(new Date().toISOString().slice(0, 10)),
       discount: Number(budget.discount),
       freight: Number(budget.freight),
       items: budget.items.map((item) => ({
@@ -427,23 +427,36 @@ export const budgetService = {
       })),
     };
 
-    const sale = await saleService.create(companyId, userId, saleData);
+    try {
+      const sale = await saleService.create(companyId, userId, saleData);
 
-    await prisma.$transaction(async (tx) => {
-      await tx.budget.update({
-        where: { id },
-        data: { status: 'CONVERTED', convertedSaleId: sale.id },
+      await prisma.$transaction(async (tx) => {
+        await tx.budget.update({
+          where: { id },
+          data: { status: 'CONVERTED', convertedSaleId: sale.id },
+        });
+        await addHistory(
+          tx,
+          id,
+          userId,
+          BUDGET_HISTORY_ACTIONS.CONVERTED,
+          `Convertido em venda nº ${sale.cod}`
+        );
       });
-      await addHistory(
-        tx,
-        id,
-        userId,
-        BUDGET_HISTORY_ACTIONS.CONVERTED,
-        `Convertido em venda nº ${sale.cod}`
-      );
-    });
 
-    return budgetService.getById(companyId, id);
+      return budgetService.getById(companyId, id);
+    } catch (error) {
+      logger.error({
+        msg: 'ERRO CRÍTICO NA CONVERSÃO DE ORÇAMENTO EM VENDA',
+        error: error.message,
+        code: error.code,
+        stack: error.stack,
+        companyId,
+        userId,
+        budgetId: id,
+      });
+      throw error;
+    }
   },
 
   async getDashboard(companyId, { noResponseDays = 7 } = {}) {

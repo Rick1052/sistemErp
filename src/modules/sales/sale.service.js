@@ -96,7 +96,8 @@ export const saleService = {
       freight = 0, 
       statusId, 
       installments = [], 
-      paymentMethodId, 
+      paymentMethodId,
+      date,
       chequeNumber,
       chequeOwner,
       chequeDueDate,
@@ -104,6 +105,8 @@ export const saleService = {
       chequeHistory,
       ...saleData 
     } = data;
+
+    const saleDate = date ? parseDateInput(date) : new Date();
 
     // Persistir as parcelas planejadas para uso futuro se for Rascunho
     const installmentsData = installments;
@@ -125,7 +128,7 @@ export const saleService = {
     }
 
     try {
-      return await prisma.$transaction(async (tx) => {
+      const saleId = await prisma.$transaction(async (tx) => {
         // 1. Get status details
         const saleStatus = await tx.saleStatus.findFirst({
           where: { id: statusId, companyId }
@@ -135,6 +138,7 @@ export const saleService = {
         // 2. Create Sale with sequence
         const sale = await createWithSequence('sale', companyId, {
           ...saleData,
+          date: saleDate,
           statusId,
           paymentMethodId, // Salvar no modelo Sale
           installmentsData, // Salvar no modelo Sale (JSON)
@@ -172,7 +176,10 @@ export const saleService = {
         // 4. Generate financial record if status is COMMIT
         if (saleStatus.stockAction === 'COMMIT') {
           logger.info(`[saleService.create] Gerando financeiro para venda recém-criada ${sale.id}`);
-          const detailedSale = await saleService.getById(companyId, sale.id, tx);
+          const detailedSale = await tx.sale.findFirst({
+            where: { id: sale.id, companyId },
+            include: { client: { select: { id: true, name: true } } },
+          });
           // Injetar dados do cheque nas parcelas para o financeiro
           const installmentsWithCheque = installments.map((inst) => ({
             ...inst,
@@ -185,8 +192,10 @@ export const saleService = {
           await financeIntegrationService.generateReceivableFromSale(companyId, detailedSale, installmentsWithCheque, tx);
         }
 
-        return saleService.getById(companyId, sale.id, tx);
+        return sale.id;
       }, { timeout: 30000 });
+
+      return saleService.getById(companyId, saleId);
     } catch (error) {
       logger.error({
         msg: 'ERRO CRÍTICO NA CRIAÇÃO DE VENDA',
@@ -208,6 +217,7 @@ export const saleService = {
       statusId, 
       installments = [], 
       paymentMethodId,
+      date,
       chequeNumber,
       chequeOwner,
       chequeDueDate,
@@ -216,10 +226,12 @@ export const saleService = {
       ...saleData 
     } = data;
 
+    const saleDate = date ? parseDateInput(date) : undefined;
+
     const installmentsData = installments;
 
     try {
-      return await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx) => {
         const oldSale = await tx.sale.findFirst({
           where: { id, companyId },
           include: { items: true, status: true }
@@ -265,6 +277,7 @@ export const saleService = {
           where: { id },
           data: {
             ...saleData,
+            ...(saleDate ? { date: saleDate } : {}),
             statusId,
             paymentMethodId, // Atualizar no modelo Sale
             installmentsData, // Atualizar no modelo Sale (JSON)
@@ -302,7 +315,10 @@ export const saleService = {
 
         // 7. Generate financial record if status is COMMIT and it wasn't COMMIT before
         if (newStatus.stockAction === 'COMMIT') {
-          const detailedSale = await saleService.getById(companyId, updatedSale.id, tx);
+          const detailedSale = await tx.sale.findFirst({
+            where: { id: updatedSale.id, companyId },
+            include: { client: { select: { id: true, name: true } } },
+          });
           // Check if already has a record to avoid duplicates on edits
           const existingRecord = await tx.financialRecord.findFirst({ where: { saleId: id } });
           if (!existingRecord) {
@@ -318,9 +334,9 @@ export const saleService = {
             await financeIntegrationService.generateReceivableFromSale(companyId, detailedSale, installmentsWithCheque, tx);
           }
         }
-
-        return saleService.getById(companyId, updatedSale.id, tx);
       }, { timeout: 30000 });
+
+      return saleService.getById(companyId, id);
     } catch (error) {
       logger.error({
         msg: 'ERRO CRÍTICO NA EDIÇÃO DE VENDA',
