@@ -25,6 +25,7 @@ import financialRoutes from './modules/financial/financial.routes.js'
 import reportRoutes from './modules/reports/report.routes.js'
 import userRoutes from './modules/users/user.routes.js'
 import dashboardRoutes from './modules/dashboard/dashboard.routes.js'
+import nfeRoutes from './modules/nfe/nfe.routes.js'
 
 import { globalErrorHandler } from './middleware/error.middleware.js'
 
@@ -135,6 +136,7 @@ app.use('/api/products/stock-movement', stockMovement)
 app.use('/api/financial', financialRoutes)
 app.use('/api/reports', reportRoutes)
 app.use('/api/users', userRoutes)
+app.use('/api/nfe', nfeRoutes)
 
 // Router Error
 app.use(globalErrorHandler)

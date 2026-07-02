@@ -67,6 +67,19 @@ enum PaymentValueDestination {
   BANK_ACCOUNT    // Conta bancária cadastrada (destinationAccountId)
 }
 
+enum NfeAmbiente {
+  homologacao
+  producao
+}
+
+enum NfeStatus {
+  PENDENTE
+  PROCESSANDO
+  AUTORIZADO
+  ERRO
+  CANCELADO
+}
+
 //////////////////////////////////////////////////////
 // USER & AUTH
 //////////////////////////////////////////////////////
@@ -130,6 +143,14 @@ model Company {
   city         String?
   state        String?
   zipCode      String?
+
+  // Dados fiscais (emissão de NFe)
+  ie               String? // Inscrição estadual
+  regimeTributario Int? // 1=Simples Nacional; 2=Simples c/ Excesso; 3=Regime Normal; 4=MEI
+  cnae             String?
+
+  nfeConfig NfeConfig?
+  nfeEmissions NfeEmission[]
 }
 
 model CompanySequence {
@@ -151,6 +172,7 @@ model CompanySequence {
   saleStatusSeq    Int @default(0)
   budgetSeq        Int @default(0)
   budgetItemSeq    Int @default(0)
+  nfeEmissionSeq   Int @default(0)
 
   accountSeq           Int @default(0)
   paymentMethodSeq     Int @default(0)
@@ -361,6 +383,8 @@ model Product {
   costPrice     Decimal? @db.Decimal(15, 2)
   averageCost   Decimal  @default(0) @db.Decimal(15, 2)
 
+  unit String @default("UN") // Unidade comercial (UN, CX, KG...) usada na NFe
+
   physicalStock Int      @default(0)
   reservedStock Int      @default(0)
 
@@ -416,6 +440,15 @@ model ProductTax {
   icmsStBase    Decimal? @db.Decimal(15, 2)
   icmsStAmount  Decimal? @db.Decimal(15, 2)
   icmsOwnAmount Decimal? @db.Decimal(15, 2)
+
+  // Dados fiscais para emissão de NFe
+  cfop             String? // CFOP padrão para venda (ex: 5102)
+  icmsCst          String? // CST/CSOSN do ICMS (ex: 41, 102)
+  icmsAliquota     Decimal? @db.Decimal(5, 2)
+  pisCst           String? // CST do PIS (ex: 07)
+  pisAliquota      Decimal? @db.Decimal(5, 2)
+  cofinsCst        String? // CST do COFINS (ex: 07)
+  cofinsAliquota   Decimal? @db.Decimal(5, 2)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -523,6 +556,17 @@ model Sale {
   updatedAt DateTime @updatedAt
 
   budget Budget?
+
+  // Dados fiscais para emissão de NFe
+  naturezaOperacao   String? // ex: "Venda de mercadoria"
+  finalidadeEmissao  Int     @default(1) // 1=normal, 2=complementar, 3=ajuste, 4=devolução
+  tipoDocumento      Int     @default(1) // 0=entrada, 1=saída
+  localDestino       Int     @default(1) // 1=interna, 2=interestadual, 3=exterior
+  consumidorFinal    Int     @default(1) // 0=não, 1=sim
+  presencaComprador  Int     @default(1) // 0-4, 9
+  modalidadeFrete    Int     @default(9) // 0=emitente, 1=destinatário, 2=terceiros, 9=sem frete
+
+  nfeEmission NfeEmission?
 
   @@unique([companyId, cod])
   @@index([companyId])
@@ -847,4 +891,68 @@ model BankTransaction {
   @@index([bankAccountId])
   @@index([date])
   @@index([financialRecordPaymentId])
+}
+
+//////////////////////////////////////////////////////
+// NFE (EMISSÃO DE NOTA FISCAL ELETRÔNICA - FOCUS NFE)
+//////////////////////////////////////////////////////
+
+/// Configuração de integração com a Focus NFe por empresa (1:1 com Company)
+model NfeConfig {
+  companyId String  @id
+  company   Company @relation(fields: [companyId], references: [id])
+
+  ambiente   NfeAmbiente @default(homologacao)
+  habilitado Boolean     @default(false)
+
+  focusEmpresaId Int? // id numérico retornado pela Focus NFe (usado para PUT /v2/empresas/{id})
+
+  // Tokens retornados pela Focus NFe ao cadastrar a empresa (armazenados criptografados)
+  tokenProducaoEnc     String?
+  tokenHomologacaoEnc  String?
+
+  certificadoValidoDe  DateTime?
+  certificadoValidoAte DateTime?
+  certificadoCnpj      String?
+
+  serieNfeProducao    String @default("1")
+  serieNfeHomologacao String @default("1")
+
+  naturezaOperacaoPadrao String @default("Venda de mercadoria")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Histórico de emissão de NFe vinculado a um pedido de venda
+model NfeEmission {
+  id        String    @id @default(uuid())
+  cod       Int
+  companyId String
+  company   Company   @relation(fields: [companyId], references: [id])
+  saleId    String    @unique
+  sale      Sale      @relation(fields: [saleId], references: [id])
+
+  ref    String    @unique // Referência enviada à Focus NFe (imutável após autorizada)
+  status NfeStatus @default(PENDENTE)
+
+  statusSefaz   String?
+  mensagemSefaz String?
+  chaveNfe      String?
+  numero        String?
+  serie         String?
+
+  caminhoXml   String?
+  caminhoDanfe String?
+
+  erros Json?
+
+  justificativaCancelamento String?
+  canceladoEm               DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, cod])
+  @@index([companyId])
 }
