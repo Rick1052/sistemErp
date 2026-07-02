@@ -87,7 +87,8 @@ app.use(helmet({
 app.use(cors(corsOptions))
 app.options('*', cors(corsOptions))
 app.use(compression())
-app.use(express.json())
+// Limite maior para comportar o logo da empresa em base64 (~350KB)
+app.use(express.json({ limit: '1mb' }))
 
 // Rate Limiting (ignora preflight OPTIONS)
 const limiter = rateLimit({

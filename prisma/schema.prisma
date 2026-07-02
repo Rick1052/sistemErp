@@ -118,6 +118,8 @@ model Company {
   financialRecords    FinancialRecord[]
 
   // Receipt & Profile Info
+  legalName    String? // Razão social (name = nome fantasia)
+  logo         String? // Logo em data URL (base64) para cabeçalho de PDFs
   document     String?
   phone        String?
   email        String?

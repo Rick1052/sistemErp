@@ -24,8 +24,9 @@ export const listCompaniesController = asyncHandler(async (req, res) => {
 export const updateCompanyController = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const data = req.body;
-    
-    const company = await updateCompanyService(id, data);
-    
+    const userId = req.user.id;
+
+    const company = await updateCompanyService(userId, id, data);
+
     return res.status(200).json(company);
 });

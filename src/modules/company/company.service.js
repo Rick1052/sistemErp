@@ -52,25 +52,43 @@ export async function listCompaniesService(userId) {
 }
 
 // Atualizar empresa
-export async function updateCompanyService(companyId, data) {
-  const { 
-    name, 
-    document, 
-    phone, 
-    email, 
-    street, 
-    number, 
-    complement, 
-    neighborhood, 
-    city, 
-    state, 
-    zipCode 
+export async function updateCompanyService(userId, companyId, data) {
+  // Garante que o usuário pertence à empresa que está tentando atualizar
+  const membership = await prisma.userCompany.findUnique({
+    where: { userId_companyId: { userId, companyId } }
+  });
+
+  if (!membership) {
+    throw new AppError("Você não tem permissão para atualizar esta empresa", 403);
+  }
+
+  const {
+    name,
+    legalName,
+    logo,
+    document,
+    phone,
+    email,
+    street,
+    number,
+    complement,
+    neighborhood,
+    city,
+    state,
+    zipCode
   } = data;
+
+  // Logo é armazenado como data URL base64 — limita o tamanho para não inflar o banco
+  if (logo && (typeof logo !== 'string' || logo.length > 500_000)) {
+    throw new AppError("Logo inválido ou muito grande (máx. ~350KB)", 400);
+  }
 
   return prisma.company.update({
     where: { id: companyId },
     data: {
       name,
+      legalName,
+      logo,
       document,
       phone,
       email,
