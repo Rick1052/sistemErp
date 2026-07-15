@@ -27,6 +27,7 @@ import userRoutes from './modules/users/user.routes.js'
 import dashboardRoutes from './modules/dashboard/dashboard.routes.js'
 import nfeRoutes from './modules/nfe/nfe.routes.js'
 import platformBillingRoutes from './modules/platformBilling/platformBilling.routes.js'
+import platformStatusRoutes from './modules/platformStatus/platformStatus.routes.js'
 
 import { globalErrorHandler } from './middleware/error.middleware.js'
 
@@ -139,6 +140,7 @@ app.use('/api/reports', reportRoutes)
 app.use('/api/users', userRoutes)
 app.use('/api/nfe', nfeRoutes)
 app.use('/api/platform/billing', platformBillingRoutes)
+app.use('/api/platform/system', platformStatusRoutes)
 
 // Router Error
 app.use(globalErrorHandler)
