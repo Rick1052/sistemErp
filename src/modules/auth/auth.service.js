@@ -2,6 +2,7 @@ import prisma from '../../database/prisma.js'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
 import { AppError } from '../../utils/AppError.js'; // Importando nossa nova classe
+import { isSuperAdminEmail } from '../../utils/superadmin.js';
 
 // ===== TOKEN HELPERS =====
 function generateAccessToken(payload) {
@@ -65,7 +66,8 @@ export async function login({ email, password, companyId }) {
         name: user.name,
         email: user.email,
         companyId: companyId,
-        role: role
+        role: role,
+        isSuperAdmin: isSuperAdminEmail(user.email)
       }
     };
   };

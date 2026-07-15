@@ -104,4 +104,3 @@ ALTER TABLE "AsaasCharge" ADD CONSTRAINT "AsaasCharge_clientId_fkey" FOREIGN KEY
 
 -- AddForeignKey
 ALTER TABLE "AsaasCharge" ADD CONSTRAINT "AsaasCharge_financialRecordId_fkey" FOREIGN KEY ("financialRecordId") REFERENCES "FinancialRecord"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-

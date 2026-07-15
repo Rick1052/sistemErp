@@ -152,9 +152,15 @@ model Company {
   nfeConfig NfeConfig?
   nfeEmissions NfeEmission[]
 
+  // LEGACY (1ª versão, mantida para consistência com produção — não usada pelo código atual)
   asaasConfig        AsaasConfig?
   asaasSubscriptions AsaasSubscription[]
   asaasCharges       AsaasCharge[]
+
+  // Billing da plataforma (mensalidade do SaaS paga por este tenant)
+  asaasCustomerId      String? // cus_... no Asaas do dono da plataforma
+  platformSubscription PlatformSubscription?
+  platformCharges      PlatformCharge[]
 }
 
 model CompanySequence {
@@ -236,7 +242,7 @@ model Client {
   companyId String
   company   Company @relation(fields: [companyId], references: [id])
 
-  // Id do cliente correspondente no Asaas (cus_...), preenchido sob demanda
+  // LEGACY (1ª versão, mantida para consistência com produção)
   asaasCustomerId String?
 
   createdAt DateTime @default(now())
@@ -975,7 +981,9 @@ model NfeEmission {
 }
 
 //////////////////////////////////////////////////////
-// ASAAS (COBRANÇA RECORRENTE - ASSINATURAS)
+// ASAAS LEGACY (1ª versão — cobrança por tenant)
+// Mantida para consistência com o banco de produção (já migrado).
+// Substituída por PLATFORM BILLING abaixo. Não é usada pelo código atual.
 //////////////////////////////////////////////////////
 
 enum AsaasEnvironment {
@@ -989,7 +997,6 @@ enum AsaasSubscriptionStatus {
   CANCELLED
 }
 
-/// Configuração de integração com o Asaas por empresa (1:1 com Company)
 model AsaasConfig {
   companyId String  @id
   company   Company @relation(fields: [companyId], references: [id])
@@ -997,18 +1004,15 @@ model AsaasConfig {
   environment AsaasEnvironment @default(SANDBOX)
   enabled     Boolean          @default(false)
 
-  // API keys do Asaas armazenadas criptografadas (utils/crypto.js)
   apiKeySandboxEnc  String?
   apiKeyProducaoEnc String?
 
-  // Token secreto gerado por nós para validar chamadas do webhook Asaas
   webhookToken String? @unique
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-/// Assinatura recorrente do Asaas (espelho local de POST /v3/subscriptions)
 model AsaasSubscription {
   id        String  @id @default(uuid())
   companyId String
@@ -1017,8 +1021,8 @@ model AsaasSubscription {
   clientId String
   client   Client @relation(fields: [clientId], references: [id])
 
-  asaasSubscriptionId String @unique // sub_...
-  asaasCustomerId     String // cus_...
+  asaasSubscriptionId String @unique
+  asaasCustomerId     String
 
   description String
   value       Decimal @db.Decimal(15, 2)
@@ -1037,7 +1041,6 @@ model AsaasSubscription {
   @@index([clientId])
 }
 
-/// Cobrança individual gerada pela assinatura (espelho de cada payment do Asaas)
 model AsaasCharge {
   id        String  @id @default(uuid())
   companyId String
@@ -1049,12 +1052,11 @@ model AsaasCharge {
   clientId String
   client   Client @relation(fields: [clientId], references: [id])
 
-  asaasPaymentId String   @unique // pay_...
+  asaasPaymentId String   @unique
   value          Decimal  @db.Decimal(15, 2)
   dueDate        DateTime
   status         String
 
-  // Título financeiro gerado no ERP a partir desta cobrança
   financialRecordId String?          @unique
   financialRecord   FinancialRecord? @relation(fields: [financialRecordId], references: [id])
 
@@ -1064,4 +1066,61 @@ model AsaasCharge {
   @@index([companyId])
   @@index([subscriptionId])
   @@index([clientId])
+}
+
+//////////////////////////////////////////////////////
+// PLATFORM BILLING (MENSALIDADE DO SAAS VIA ASAAS)
+// Conta Asaas única do dono da plataforma. Cada empresa (tenant)
+// que usa o ERP tem uma assinatura mensal cobrada nessa conta.
+//////////////////////////////////////////////////////
+
+enum PlatformSubscriptionStatus {
+  ACTIVE
+  INACTIVE
+  CANCELLED
+}
+
+/// Assinatura da mensalidade do SaaS de uma empresa (1:1 com Company)
+model PlatformSubscription {
+  id        String  @id @default(uuid())
+  companyId String  @unique
+  company   Company @relation(fields: [companyId], references: [id])
+
+  asaasCustomerId     String // cus_... (na conta Asaas da plataforma)
+  asaasSubscriptionId String @unique // sub_...
+
+  description String
+  value       Decimal  @db.Decimal(15, 2)
+  cycle       String   @default("MONTHLY")
+  billingType String   @default("UNDEFINED")
+  nextDueDate DateTime
+
+  status PlatformSubscriptionStatus @default(ACTIVE)
+
+  charges PlatformCharge[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Cobrança mensal gerada pela assinatura da plataforma (espelho de cada payment do Asaas)
+model PlatformCharge {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  subscriptionId String
+  subscription   PlatformSubscription @relation(fields: [subscriptionId], references: [id])
+
+  asaasPaymentId String   @unique // pay_...
+  value          Decimal  @db.Decimal(15, 2)
+  dueDate        DateTime
+  status         String
+  paidAt         DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([subscriptionId])
 }
