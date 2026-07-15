@@ -151,6 +151,10 @@ model Company {
 
   nfeConfig NfeConfig?
   nfeEmissions NfeEmission[]
+
+  asaasConfig        AsaasConfig?
+  asaasSubscriptions AsaasSubscription[]
+  asaasCharges       AsaasCharge[]
 }
 
 model CompanySequence {
@@ -232,6 +236,9 @@ model Client {
   companyId String
   company   Company @relation(fields: [companyId], references: [id])
 
+  // Id do cliente correspondente no Asaas (cus_...), preenchido sob demanda
+  asaasCustomerId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -240,6 +247,8 @@ model Client {
   saleCheques Sale[] @relation("SaleChequeCustomer")
   cheques FinancialRecord[] @relation("ChequeCustomer")
   financialRecords FinancialRecord[] @relation("FinancialClient")
+  asaasSubscriptions AsaasSubscription[]
+  asaasCharges       AsaasCharge[]
 
   @@unique([companyId, cod])
   @@unique([companyId, document])
@@ -766,6 +775,7 @@ model PaymentMethod {
   sales            Sale[]
   budgets          Budget[]
   financialRecordPayments FinancialRecordPayment[]
+  nfeEmissions     NfeEmission[]
 
   @@unique([companyId, cod])
   @@unique([companyId, name])
@@ -843,6 +853,7 @@ model FinancialRecord {
 
   transactions BankTransaction[]
   payments     FinancialRecordPayment[]
+  asaasCharge  AsaasCharge?
 
   @@unique([companyId, cod])
   @@index([companyId])
@@ -936,6 +947,12 @@ model NfeEmission {
   ref    String    @unique // Referência enviada à Focus NFe (imutável após autorizada)
   status NfeStatus @default(PENDENTE)
 
+  // Campos de conferência do rascunho (revisados antes do envio à SEFAZ)
+  dataEmissao     DateTime?
+  dataSaida       DateTime?
+  paymentMethodId String?
+  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+
   statusSefaz   String?
   mensagemSefaz String?
   chaveNfe      String?
@@ -955,4 +972,96 @@ model NfeEmission {
 
   @@unique([companyId, cod])
   @@index([companyId])
+}
+
+//////////////////////////////////////////////////////
+// ASAAS (COBRANÇA RECORRENTE - ASSINATURAS)
+//////////////////////////////////////////////////////
+
+enum AsaasEnvironment {
+  SANDBOX
+  PRODUCTION
+}
+
+enum AsaasSubscriptionStatus {
+  ACTIVE
+  INACTIVE
+  CANCELLED
+}
+
+/// Configuração de integração com o Asaas por empresa (1:1 com Company)
+model AsaasConfig {
+  companyId String  @id
+  company   Company @relation(fields: [companyId], references: [id])
+
+  environment AsaasEnvironment @default(SANDBOX)
+  enabled     Boolean          @default(false)
+
+  // API keys do Asaas armazenadas criptografadas (utils/crypto.js)
+  apiKeySandboxEnc  String?
+  apiKeyProducaoEnc String?
+
+  // Token secreto gerado por nós para validar chamadas do webhook Asaas
+  webhookToken String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Assinatura recorrente do Asaas (espelho local de POST /v3/subscriptions)
+model AsaasSubscription {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  asaasSubscriptionId String @unique // sub_...
+  asaasCustomerId     String // cus_...
+
+  description String
+  value       Decimal @db.Decimal(15, 2)
+  cycle       String  @default("MONTHLY")
+  billingType String  @default("UNDEFINED")
+  nextDueDate DateTime
+
+  status AsaasSubscriptionStatus @default(ACTIVE)
+
+  charges AsaasCharge[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([clientId])
+}
+
+/// Cobrança individual gerada pela assinatura (espelho de cada payment do Asaas)
+model AsaasCharge {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  subscriptionId String
+  subscription   AsaasSubscription @relation(fields: [subscriptionId], references: [id])
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  asaasPaymentId String   @unique // pay_...
+  value          Decimal  @db.Decimal(15, 2)
+  dueDate        DateTime
+  status         String
+
+  // Título financeiro gerado no ERP a partir desta cobrança
+  financialRecordId String?          @unique
+  financialRecord   FinancialRecord? @relation(fields: [financialRecordId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([subscriptionId])
+  @@index([clientId])
 }

@@ -18,6 +18,32 @@ export const nfeController = {
     return res.json(config);
   }),
 
+  list: asyncHandler(async (req, res) => {
+    const { page, limit, status, search } = req.query;
+    const result = await nfeService.list(req.companyId, {
+      page: parseInt(page) > 0 ? parseInt(page) : 1,
+      limit: parseInt(limit) > 0 ? parseInt(limit) : 25,
+      status: status || undefined,
+      search: search || undefined,
+    });
+    return res.json(result);
+  }),
+
+  createDraft: asyncHandler(async (req, res) => {
+    const emission = await nfeService.createDraft(req.companyId, req.params.saleId);
+    return res.status(201).json(emission);
+  }),
+
+  updateDraft: asyncHandler(async (req, res) => {
+    const emission = await nfeService.updateDraft(req.companyId, req.params.id, req.validatedBody);
+    return res.json(emission);
+  }),
+
+  getEmission: asyncHandler(async (req, res) => {
+    const emission = await nfeService.getEmissionById(req.companyId, req.params.id);
+    return res.json(emission);
+  }),
+
   emit: asyncHandler(async (req, res) => {
     const emission = await nfeService.emit(req.companyId, req.params.saleId);
     return res.status(202).json(emission);

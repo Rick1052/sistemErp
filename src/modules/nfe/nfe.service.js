@@ -169,8 +169,120 @@ export const nfeService = {
     return serializeConfig(updated);
   },
 
+  // Lista as notas fiscais da empresa (todas as emissões, com pedido e cliente)
+  async list(companyId, { page = 1, limit = 25, status, search } = {}) {
+    const where = { companyId };
+    if (status) where.status = status;
+    if (search) {
+      where.OR = [
+        { numero: { contains: search } },
+        { chaveNfe: { contains: search } },
+        { sale: { client: { name: { contains: search, mode: 'insensitive' } } } },
+      ];
+    }
+
+    const skip = (page - 1) * limit;
+    const [emissions, total] = await Promise.all([
+      prisma.nfeEmission.findMany({
+        where,
+        include: {
+          sale: {
+            select: {
+              id: true,
+              cod: true,
+              total: true,
+              date: true,
+              client: { select: { id: true, name: true, document: true } },
+            },
+          },
+          paymentMethod: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.nfeEmission.count({ where }),
+    ]);
+
+    return {
+      emissions,
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    };
+  },
+
+  // Cria (ou retorna) o rascunho de NFe de um pedido, para conferência antes do envio
+  async createDraft(companyId, saleId) {
+    const sale = await prisma.sale.findFirst({
+      where: { id: saleId, companyId },
+      include: { nfeEmission: true },
+    });
+    if (!sale) throw new AppError('Venda não encontrada', 404);
+
+    if (sale.nfeEmission) return this.getEmissionById(companyId, sale.nfeEmission.id);
+
+    const now = new Date();
+    const emission = await createWithSequence('nfeEmission', companyId, {
+      saleId,
+      ref: `sale${sale.cod}c${companyId.slice(0, 8)}`.replace(/[^a-zA-Z0-9]/g, ''),
+      status: 'PENDENTE',
+      dataEmissao: now,
+      dataSaida: now,
+      paymentMethodId: sale.paymentMethodId || null,
+    });
+
+    return this.getEmissionById(companyId, emission.id);
+  },
+
+  async getEmissionById(companyId, emissionId) {
+    const emission = await prisma.nfeEmission.findFirst({
+      where: { id: emissionId, companyId },
+      include: {
+        sale: {
+          select: {
+            id: true,
+            cod: true,
+            total: true,
+            subtotal: true,
+            discount: true,
+            freight: true,
+            date: true,
+            client: { select: { id: true, name: true, document: true } },
+          },
+        },
+        paymentMethod: { select: { id: true, name: true } },
+      },
+    });
+    if (!emission) throw new AppError('Nota fiscal não encontrada', 404);
+    return emission;
+  },
+
+  // Atualiza os campos de conferência do rascunho (antes do envio à SEFAZ)
+  async updateDraft(companyId, emissionId, { dataEmissao, dataSaida, paymentMethodId }) {
+    const emission = await prisma.nfeEmission.findFirst({ where: { id: emissionId, companyId } });
+    if (!emission) throw new AppError('Nota fiscal não encontrada', 404);
+    if (!['PENDENTE', 'ERRO'].includes(emission.status)) {
+      throw new AppError('Só é possível editar uma nota que ainda não foi enviada', 422);
+    }
+
+    if (paymentMethodId) {
+      const pm = await prisma.paymentMethod.findFirst({ where: { id: paymentMethodId, companyId } });
+      if (!pm) throw new AppError('Forma de pagamento inválida', 400);
+    }
+
+    await prisma.nfeEmission.update({
+      where: { id: emission.id },
+      data: {
+        dataEmissao: dataEmissao ? new Date(dataEmissao) : undefined,
+        dataSaida: dataSaida ? new Date(dataSaida) : undefined,
+        paymentMethodId: paymentMethodId === null ? null : paymentMethodId || undefined,
+      },
+    });
+
+    return this.getEmissionById(companyId, emission.id);
+  },
+
   // Monta o payload de emissão a partir do pedido de venda
-  async buildNfePayload(companyId, sale, config) {
+  async buildNfePayload(companyId, sale, config, emission = null) {
     const company = await prisma.company.findUnique({ where: { id: companyId } });
     const client = sale.client;
 
@@ -217,8 +329,8 @@ export const nfeService = {
 
     return {
       natureza_operacao: sale.naturezaOperacao || config.naturezaOperacaoPadrao,
-      data_emissao: new Date().toISOString(),
-      data_entrada_saida: new Date().toISOString(),
+      data_emissao: (emission?.dataEmissao || new Date()).toISOString(),
+      data_entrada_saida: (emission?.dataSaida || emission?.dataEmissao || new Date()).toISOString(),
       tipo_documento: sale.tipoDocumento,
       local_destino: sale.localDestino,
       finalidade_emissao: sale.finalidadeEmissao,
@@ -285,17 +397,21 @@ export const nfeService = {
       throw new AppError('Esta venda já possui uma NFe em processamento', 422);
     }
 
-    const payload = await this.buildNfePayload(companyId, sale, config);
-    const token = tokenFor(config);
-
     let emission = sale.nfeEmission;
     if (!emission) {
+      const now = new Date();
       emission = await createWithSequence('nfeEmission', companyId, {
         saleId,
         ref: `sale${sale.cod}c${companyId.slice(0, 8)}`.replace(/[^a-zA-Z0-9]/g, ''),
         status: 'PENDENTE',
+        dataEmissao: now,
+        dataSaida: now,
+        paymentMethodId: sale.paymentMethodId || null,
       });
     }
+
+    const payload = await this.buildNfePayload(companyId, sale, config, emission);
+    const token = tokenFor(config);
 
     const response = await focusNfeClient.emitirNfe(config.ambiente, token, emission.ref, payload);
 

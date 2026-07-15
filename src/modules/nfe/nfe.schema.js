@@ -15,3 +15,9 @@ export const setAmbienteSchema = z.object({
 export const cancelNfeSchema = z.object({
   justificativa: z.string().min(15).max(255),
 });
+
+export const updateDraftSchema = z.object({
+  dataEmissao: z.coerce.date().optional(),
+  dataSaida: z.coerce.date().optional(),
+  paymentMethodId: z.string().uuid().nullable().optional(),
+});
