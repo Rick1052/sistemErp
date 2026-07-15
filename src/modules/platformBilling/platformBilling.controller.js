@@ -26,6 +26,12 @@ export const platformBillingController = {
     return res.json(subscription);
   }),
 
+  // Faturas do próprio tenant (ADMIN da empresa logada)
+  getMyBilling: asyncHandler(async (req, res) => {
+    const billing = await platformBillingService.getMyBilling(req.companyId);
+    return res.json(billing);
+  }),
+
   // Rota pública chamada pelo Asaas — validada pelo token da URL, sem authMiddleware
   webhook: asyncHandler(async (req, res) => {
     await platformBillingService.handleWebhook(req.params.token, req.body);

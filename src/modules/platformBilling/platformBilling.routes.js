@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { platformBillingController } from './platformBilling.controller.js';
 import { authMiddleware } from '../../middleware/auth.middleware.js';
 import { requireSuperAdmin } from '../../middleware/require.superadmin.js';
+import { requireCompany } from '../../middleware/require.company.js';
+import { requireRole } from '../../middleware/require.role.js';
 import { validate } from '../../middleware/validate.middleware.js';
 import { createSubscriptionSchema } from './platformBilling.schema.js';
 
@@ -9,6 +11,9 @@ const routes = Router();
 
 // Rota pública — chamada pelo Asaas, validada pelo token da URL (sem autenticação de usuário)
 routes.post('/webhook/:token', platformBillingController.webhook);
+
+// Faturas do próprio tenant — ADMIN da empresa logada (não exige super-admin)
+routes.get('/me', authMiddleware, requireCompany, requireRole('ADMIN'), platformBillingController.getMyBilling);
 
 // Área do super-admin da plataforma
 routes.use(authMiddleware, requireSuperAdmin);

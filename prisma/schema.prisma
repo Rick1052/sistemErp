@@ -1117,6 +1117,7 @@ model PlatformCharge {
   dueDate        DateTime
   status         String
   paidAt         DateTime?
+  invoiceUrl     String? // página de pagamento do Asaas (boleto/Pix/cartão)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

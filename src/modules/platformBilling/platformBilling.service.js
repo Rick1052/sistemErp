@@ -230,6 +230,70 @@ export const platformBillingService = {
   },
 
   /**
+   * Faturas da mensalidade vistas pelo próprio tenant (ADMIN da empresa).
+   * Retorna a assinatura da empresa + últimas cobranças, com link de pagamento.
+   */
+  async getMyBilling(companyId) {
+    const subscription = await prisma.platformSubscription.findUnique({
+      where: { companyId },
+    });
+    if (!subscription) return { subscription: null, charges: [], hasOverdue: false };
+
+    let charges = await prisma.platformCharge.findMany({
+      where: { subscriptionId: subscription.id },
+      orderBy: { dueDate: 'desc' },
+      take: 12,
+    });
+
+    // Backfill do link de pagamento para cobranças em aberto que ainda não têm URL
+    const missing = charges.filter((c) => !c.invoiceUrl && !c.paidAt);
+    if (missing.length > 0 && process.env.ASAAS_API_KEY) {
+      const creds = getPlatformCreds();
+      for (const c of missing) {
+        try {
+          const { status, data } = await asaasClient.getPayment(creds.environment, creds.apiKey, c.asaasPaymentId);
+          if (status < 300 && data?.invoiceUrl) {
+            await prisma.platformCharge.update({
+              where: { id: c.id },
+              data: { invoiceUrl: data.invoiceUrl },
+            });
+          }
+        } catch (error) {
+          logger.warn({ msg: '[platformBilling] Falha no backfill de invoiceUrl', chargeId: c.id, error: error.message });
+        }
+      }
+      charges = await prisma.platformCharge.findMany({
+        where: { subscriptionId: subscription.id },
+        orderBy: { dueDate: 'desc' },
+        take: 12,
+      });
+    }
+
+    const now = new Date();
+    const isCancelledLike = (s) => ['REFUNDED', 'DELETED', 'CANCELLED'].includes(String(s).toUpperCase());
+    const hasOverdue = charges.some((c) => !c.paidAt && !isCancelledLike(c.status) && new Date(c.dueDate) < now);
+
+    return {
+      subscription: {
+        description: subscription.description,
+        value: subscription.value,
+        billingType: subscription.billingType,
+        nextDueDate: subscription.nextDueDate,
+        status: subscription.status,
+      },
+      charges: charges.map((c) => ({
+        id: c.id,
+        value: c.value,
+        dueDate: c.dueDate,
+        status: c.status,
+        paidAt: c.paidAt,
+        invoiceUrl: c.invoiceUrl,
+      })),
+      hasOverdue,
+    };
+  },
+
+  /**
    * Webhook do Asaas (conta da plataforma). Valida o token da URL contra ASAAS_WEBHOOK_TOKEN.
    * Idempotente: cada cobrança vira um PlatformCharge (chave asaasPaymentId).
    */
@@ -271,10 +335,12 @@ export const platformBillingService = {
         dueDate,
         status: payment.status || event,
         paidAt,
+        invoiceUrl: payment.invoiceUrl || null,
       },
       update: {
         status: payment.status || event,
         ...(isPaid ? { paidAt } : {}),
+        ...(payment.invoiceUrl ? { invoiceUrl: payment.invoiceUrl } : {}),
       },
     });
 
