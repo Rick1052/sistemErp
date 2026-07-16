@@ -5,6 +5,7 @@ import { requireSuperAdmin } from '../../middleware/require.superadmin.js';
 import { requireCompany } from '../../middleware/require.company.js';
 import { requireRole } from '../../middleware/require.role.js';
 import { validate } from '../../middleware/validate.middleware.js';
+import { cacheResponse } from '../../middleware/cache.middleware.js';
 import { createSubscriptionSchema } from './platformBilling.schema.js';
 
 const routes = Router();
@@ -13,7 +14,8 @@ const routes = Router();
 routes.post('/webhook/:token', platformBillingController.webhook);
 
 // Faturas do próprio tenant — ADMIN da empresa logada (não exige super-admin)
-routes.get('/me', authMiddleware, requireCompany, requireRole('ADMIN'), platformBillingController.getMyBilling);
+// Cache 120s: evita bater no Asaas (backfill de link) a cada abertura da dashboard
+routes.get('/me', authMiddleware, requireCompany, requireRole('ADMIN'), cacheResponse('platform-billing', 120), platformBillingController.getMyBilling);
 
 // Área do super-admin da plataforma
 routes.use(authMiddleware, requireSuperAdmin);

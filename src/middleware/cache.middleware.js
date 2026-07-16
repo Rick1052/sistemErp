@@ -2,17 +2,22 @@ import { cacheGetJSON, cacheSetJSON, cacheKeyFromReq } from '../utils/cache.js';
 import logger from '../utils/logger.js';
 
 /**
- * Middleware de cache de resposta para rotas GET (por empresa + querystring + path).
+ * Middleware de cache de resposta para rotas GET (por escopo + querystring + path).
+ * - Escopo padrão: a empresa (req.companyId). Para rotas cujo resultado depende do
+ *   usuário (ex.: lista de empresas do usuário), passe getScopeId = (req) => req.user?.id.
  * - Usa a versão do recurso na chave: um cacheBumpVersion({resource}) invalida tudo.
  * - Em HIT, responde direto sem tocar no controller/banco.
  * - Em MISS, intercepta o res.json e grava a resposta (somente status 2xx).
- * Deve rodar após authMiddleware + requireCompany (precisa de req.companyId).
+ * Deve rodar após o authMiddleware (e requireCompany, no escopo padrão).
  */
-export function cacheResponse(resource, ttlSeconds = 60) {
+export function cacheResponse(resource, ttlSeconds = 60, getScopeId = (req) => req.companyId) {
   return async (req, res, next) => {
     try {
+      const scopeId = getScopeId(req);
+      if (!scopeId) return next(); // sem escopo identificável, não cacheia
+
       const key = await cacheKeyFromReq({
-        companyId: req.companyId,
+        companyId: scopeId,
         resource,
         query: { ...req.query, __path: req.path },
       });

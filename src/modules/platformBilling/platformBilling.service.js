@@ -1,6 +1,7 @@
 import prisma from '../../database/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import logger from '../../utils/logger.js';
+import { cacheBumpVersion } from '../../utils/cache.js';
 import { asaasClient } from './asaasClient.js';
 
 /** Credenciais da conta Asaas da plataforma (via env). */
@@ -191,6 +192,8 @@ export const platformBillingService = {
       await prisma.platformSubscription.delete({ where: { id: company.platformSubscription.id } });
     }
 
+    await cacheBumpVersion({ companyId, resource: 'platform-billing' });
+
     return prisma.platformSubscription.create({
       data: {
         companyId,
@@ -222,6 +225,8 @@ export const platformBillingService = {
       const msg = data?.errors?.[0]?.description || 'Erro ao cancelar assinatura no Asaas';
       throw new AppError(msg, 400);
     }
+
+    await cacheBumpVersion({ companyId: sub.companyId, resource: 'platform-billing' });
 
     return prisma.platformSubscription.update({
       where: { id: sub.id },
@@ -343,6 +348,9 @@ export const platformBillingService = {
         ...(payment.invoiceUrl ? { invoiceUrl: payment.invoiceUrl } : {}),
       },
     });
+
+    // Novo evento de cobrança → invalida o cache do /me da empresa
+    await cacheBumpVersion({ companyId: subscription.companyId, resource: 'platform-billing' });
 
     return { ok: true, chargeId: charge.id };
   },

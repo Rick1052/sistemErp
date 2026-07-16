@@ -7,12 +7,14 @@ import {
 
 import { authMiddleware } from '../../middleware/auth.middleware.js'
 import { requireCompany } from '../../middleware/require.company.js'
+import { cacheResponse } from '../../middleware/cache.middleware.js'
 
 const router = express.Router()
 
 // Rotas protegidas
 router.post('/', authMiddleware, createCompanyController)
-router.get('/', authMiddleware, listCompaniesController)
+// A lista de empresas é por usuário (não por empresa) e carrega o logo (~150KB) — cache 5min por usuário
+router.get('/', authMiddleware, cacheResponse('company', 300, (req) => req.user?.id), listCompaniesController)
 router.put('/:id', authMiddleware, updateCompanyController)
 
 router.get(
