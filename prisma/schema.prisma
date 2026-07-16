@@ -585,6 +585,8 @@ model Sale {
 
   @@unique([companyId, cod])
   @@index([companyId])
+  // Relatórios e listas de vendas filtram por empresa+período
+  @@index([companyId, date])
 }
 
 model SaleItem {
@@ -865,6 +867,9 @@ model FinancialRecord {
   @@index([companyId])
   @@index([saleId])
   @@index([status])
+  // Dashboard e listas financeiras filtram por empresa+tipo/status+vencimento
+  @@index([companyId, status, dueDate])
+  @@index([companyId, type, dueDate])
 }
 
 model FinancialRecordPayment {

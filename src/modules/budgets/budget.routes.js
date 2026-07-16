@@ -3,6 +3,7 @@ import { budgetController } from './budget.controller.js';
 import { authMiddleware } from '../../middleware/auth.middleware.js';
 import { requireCompany } from '../../middleware/require.company.js';
 import { validate } from '../../middleware/validate.middleware.js';
+import { cacheResponse } from '../../middleware/cache.middleware.js';
 import {
   createBudgetSchema,
   updateBudgetSchema,
@@ -13,8 +14,8 @@ const routes = Router();
 
 routes.use(authMiddleware, requireCompany);
 
-routes.get('/dashboard', budgetController.getDashboard);
-routes.get('/', budgetController.list);
+routes.get('/dashboard', cacheResponse('budgets', 60), budgetController.getDashboard);
+routes.get('/', cacheResponse('budgets', 60), budgetController.list);
 routes.get('/:id', budgetController.getById);
 routes.post('/', validate(createBudgetSchema), budgetController.create);
 routes.put('/:id', validate(updateBudgetSchema), budgetController.update);

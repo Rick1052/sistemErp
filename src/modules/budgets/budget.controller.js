@@ -2,6 +2,7 @@ import { budgetService } from './budget.service.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { parseDateInput } from '../../utils/date.js';
 import { AppError } from '../../utils/AppError.js';
+import { cacheBumpVersion } from '../../utils/cache.js';
 
 function assertCanApprove(role) {
   if (role !== 'ADMIN') {
@@ -53,6 +54,7 @@ export const budgetController = {
     const { id: userId } = req.user;
     const body = req.validatedBody ?? req.body;
     const budget = await budgetService.create(companyId, userId, body);
+    await cacheBumpVersion({ companyId, resource: 'budgets' });
     return res.status(201).json(budget);
   }),
 
@@ -61,6 +63,7 @@ export const budgetController = {
     const { id: userId } = req.user;
     const body = req.validatedBody ?? req.body;
     const budget = await budgetService.update(companyId, userId, req.params.id, body);
+    await cacheBumpVersion({ companyId, resource: 'budgets' });
     return res.json(budget);
   }),
 
@@ -77,6 +80,7 @@ export const budgetController = {
       status,
       ...rest,
     });
+    await cacheBumpVersion({ companyId, resource: 'budgets' });
     return res.json(budget);
   }),
 
@@ -84,6 +88,7 @@ export const budgetController = {
     const { companyId, userRole } = req;
     assertCanDelete(userRole);
     const result = await budgetService.delete(companyId, req.params.id);
+    await cacheBumpVersion({ companyId, resource: 'budgets' });
     return res.json(result);
   }),
 
@@ -91,6 +96,9 @@ export const budgetController = {
     const { companyId } = req;
     const { id: userId } = req.user;
     const budget = await budgetService.convertToSale(companyId, userId, req.params.id);
+    // Converter orçamento cria uma venda — invalida os dois recursos
+    await cacheBumpVersion({ companyId, resource: 'budgets' });
+    await cacheBumpVersion({ companyId, resource: 'sales' });
     return res.json(budget);
   }),
 };
