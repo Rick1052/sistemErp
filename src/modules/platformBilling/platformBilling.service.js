@@ -187,25 +187,31 @@ export const platformBillingService = {
       throw new AppError(msg, 400);
     }
 
-    // Se havia uma assinatura CANCELLED, substitui pelo registro novo
-    if (company.platformSubscription) {
-      await prisma.platformSubscription.delete({ where: { id: company.platformSubscription.id } });
-    }
-
     await cacheBumpVersion({ companyId, resource: 'platform-billing' });
 
+    const subscriptionData = {
+      asaasCustomerId: customerId,
+      asaasSubscriptionId: data.id,
+      description,
+      value: numericValue,
+      cycle: 'MONTHLY',
+      billingType: billingType || 'UNDEFINED',
+      nextDueDate,
+      status: 'ACTIVE',
+    };
+
+    // Reaproveita o registro se havia assinatura CANCELLED (deletar quebraria a FK
+    // das cobranças antigas — e o histórico deve ser preservado de qualquer forma)
+    if (company.platformSubscription) {
+      return prisma.platformSubscription.update({
+        where: { id: company.platformSubscription.id },
+        data: subscriptionData,
+        include: { company: { select: { id: true, name: true, document: true } } },
+      });
+    }
+
     return prisma.platformSubscription.create({
-      data: {
-        companyId,
-        asaasCustomerId: customerId,
-        asaasSubscriptionId: data.id,
-        description,
-        value: numericValue,
-        cycle: 'MONTHLY',
-        billingType: billingType || 'UNDEFINED',
-        nextDueDate,
-        status: 'ACTIVE',
-      },
+      data: { companyId, ...subscriptionData },
       include: { company: { select: { id: true, name: true, document: true } } },
     });
   },

@@ -29,7 +29,16 @@ async function request(environment, apiKey, method, path, body) {
   }
 
   const text = await response.text();
-  const data = text ? JSON.parse(text) : {};
+  let data = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // Resposta não-JSON (ex.: página de erro de proxy) não pode virar crash 500
+      logger.error({ msg: '[asaasClient] Resposta não-JSON do Asaas', url, status: response.status, body: text.slice(0, 300) });
+      throw new AppError('Resposta inesperada do Asaas. Tente novamente.', 502);
+    }
+  }
 
   if (!response.ok) {
     logger.warn({ msg: '[asaasClient] Resposta de erro', url, status: response.status, data });
