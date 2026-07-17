@@ -341,6 +341,25 @@ export const platformBillingService = {
       where: { asaasSubscriptionId: payment.subscription },
     });
     if (!subscription) {
+      // Cobrança órfã: a assinatura Asaas dela não existe mais localmente (ex.: assinatura
+      // recriada/adotada). Se a cobrança já está registrada, ainda atualizamos o status —
+      // essencial para marcar como DELETED boletos de assinaturas antigas.
+      const orphan = await prisma.platformCharge.findUnique({
+        where: { asaasPaymentId: payment.id },
+        select: { id: true, companyId: true },
+      });
+      if (orphan) {
+        const orphanStatus = (event === 'PAYMENT_DELETED' || payment.deleted === true)
+          ? 'DELETED'
+          : (payment.status || event);
+        await prisma.platformCharge.update({
+          where: { id: orphan.id },
+          data: { status: orphanStatus },
+        });
+        await cacheBumpVersion({ companyId: orphan.companyId, resource: 'platform-billing' });
+        logger.info(`[platformBilling] Cobrança órfã ${payment.id} atualizada para ${orphanStatus}`);
+        return { ok: true, chargeId: orphan.id };
+      }
       logger.warn({ msg: '[platformBilling] Assinatura do webhook não encontrada', sub: payment.subscription });
       return { ignored: true };
     }
