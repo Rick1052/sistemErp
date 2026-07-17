@@ -1,6 +1,6 @@
 import prisma from '../../database/prisma.js';
 import { AppError } from '../../utils/AppError.js';
-import { createWithSequence } from "../../utils/createWithSequence.js";
+import { createWithSequence, reserveSequenceRange } from "../../utils/createWithSequence.js";
 import { financeIntegrationService } from "../financial/financeIntegration.service.js";
 import logger from '../../utils/logger.js';
 import { parseDateInput } from '../../utils/date.js';
@@ -91,12 +91,12 @@ export const saleService = {
   },
 
   async create(companyId, userId, data) {
-    const { 
-      items, 
-      discount = 0, 
-      freight = 0, 
-      statusId, 
-      installments = [], 
+    const {
+      items,
+      discount = 0,
+      freight = 0,
+      statusId,
+      installments = [],
       paymentMethodId,
       date,
       chequeNumber,
@@ -104,8 +104,22 @@ export const saleService = {
       chequeDueDate,
       chequeCustomerId,
       chequeHistory,
-      ...saleData 
+      clientRequestId,
+      ...saleData
     } = data;
+
+    // Idempotência: se este formulário já criou um pedido (retry após erro/timeout),
+    // devolve o pedido existente em vez de duplicar.
+    if (clientRequestId) {
+      const existing = await prisma.sale.findFirst({
+        where: { companyId, clientRequestId },
+        select: { id: true },
+      });
+      if (existing) {
+        logger.info(`[saleService.create] Replay idempotente (clientRequestId=${clientRequestId}) -> venda ${existing.id}`);
+        return saleService.getById(companyId, existing.id);
+      }
+    }
 
     const saleDate = date ? parseDateInput(date) : new Date();
 
@@ -139,6 +153,7 @@ export const saleService = {
         // 2. Create Sale with sequence
         const sale = await createWithSequence('sale', companyId, {
           ...saleData,
+          clientRequestId, // Chave de idempotência (única por empresa)
           date: saleDate,
           statusId,
           paymentMethodId, // Salvar no modelo Sale
@@ -154,24 +169,55 @@ export const saleService = {
           total,
         }, tx);
 
-        // 3. Create items and handle stock action
-        const warehouse = saleStatus.stockAction !== 'NONE'
+        // 3. Itens em lote: reserva a faixa de cods em UMA query e usa createMany.
+        // (Antes eram 2 queries de sequência + 1 create POR item — principal causa da
+        // transação longa e dos timeouts com o banco remoto.)
+        const stockAction = saleStatus.stockAction;
+        const warehouse = stockAction !== 'NONE'
           ? await saleService._resolveWarehouse(tx, companyId)
           : null;
 
-        for (const item of items) {
-          const itemTotal = (item.unitPrice - (item.discount || 0)) * item.quantity;
-
-          await createWithSequence('saleItem', companyId, {
+        const firstItemCod = await reserveSequenceRange('saleItem', companyId, items.length, tx);
+        await tx.saleItem.createMany({
+          data: items.map((item, i) => ({
+            companyId,
+            cod: firstItemCod + i,
             saleId: sale.id,
             productId: item.productId,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
-            discount: item.discount,
-            total: itemTotal,
-          }, tx);
+            discount: item.discount ?? 0,
+            total: (item.unitPrice - (item.discount || 0)) * item.quantity,
+          })),
+        });
 
-          await saleService._applyStockAction(tx, companyId, userId, sale, item, saleStatus.stockAction, warehouse);
+        // 4. Ação de estoque em lote (updates de produto por item + movimentos via createMany)
+        if (stockAction === 'RESERVE' || stockAction === 'COMMIT') {
+          for (const item of items) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: stockAction === 'RESERVE'
+                ? { reservedStock: { increment: item.quantity } }
+                : { physicalStock: { decrement: item.quantity } },
+            });
+          }
+
+          const firstMovCod = await reserveSequenceRange('stockMovement', companyId, items.length, tx);
+          await tx.stockMovement.createMany({
+            data: items.map((item, i) => ({
+              companyId,
+              cod: firstMovCod + i,
+              productId: item.productId,
+              userId,
+              type: stockAction === 'RESERVE' ? 'RESERVE' : 'OUT',
+              quantity: item.quantity,
+              reason: stockAction === 'RESERVE'
+                ? `Reserva Pedido ${sale.cod}`
+                : `Venda Direta Pedido ${sale.cod}`,
+              documentRef: String(sale.cod),
+              warehouseId: warehouse.id,
+            })),
+          });
         }
 
         // 4. Generate financial record if status is COMMIT
@@ -196,8 +242,37 @@ export const saleService = {
         return sale.id;
       }, { timeout: 30000 });
 
-      return saleService.getById(companyId, saleId);
+      // A venda JÁ está commitada aqui. Falha na leitura de retorno não pode virar 500
+      // (o usuário interpretaria como "não salvou" e clicaria de novo, duplicando).
+      try {
+        return await saleService.getById(companyId, saleId);
+      } catch (readError) {
+        logger.warn({
+          msg: '[saleService.create] Venda criada, mas falhou a leitura de retorno — devolvendo id',
+          saleId,
+          error: readError.message,
+        });
+        return { id: saleId };
+      }
     } catch (error) {
+      // Corrida entre dois cliques: o segundo request esbarra no índice único de
+      // clientRequestId — devolve a venda que o primeiro criou, sem erro.
+      const target = String(error?.meta?.target ?? '');
+      if (error?.code === 'P2002' && clientRequestId && target.includes('clientRequestId')) {
+        const existing = await prisma.sale.findFirst({
+          where: { companyId, clientRequestId },
+          select: { id: true },
+        });
+        if (existing) {
+          logger.info(`[saleService.create] Corrida idempotente resolvida -> venda ${existing.id}`);
+          try {
+            return await saleService.getById(companyId, existing.id);
+          } catch {
+            return { id: existing.id };
+          }
+        }
+      }
+
       logger.error({
         msg: 'ERRO CRÍTICO NA CRIAÇÃO DE VENDA',
         error: error.message,
@@ -211,12 +286,12 @@ export const saleService = {
   },
 
   async update(companyId, userId, id, data) {
-    const { 
-      items, 
-      discount = 0, 
-      freight = 0, 
-      statusId, 
-      installments = [], 
+    const {
+      items,
+      discount = 0,
+      freight = 0,
+      statusId,
+      installments = [],
       paymentMethodId,
       date,
       chequeNumber,
@@ -224,7 +299,8 @@ export const saleService = {
       chequeDueDate,
       chequeCustomerId,
       chequeHistory,
-      ...saleData 
+      clientRequestId: _ignoredClientRequestId, // idempotência é só do create
+      ...saleData
     } = data;
 
     const saleDate = date ? parseDateInput(date) : undefined;

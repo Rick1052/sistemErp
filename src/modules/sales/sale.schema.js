@@ -15,6 +15,8 @@ export const createSaleSchema = z.object({
   clientId: robustUUID(true),
   statusId: robustUUID(true),
   paymentMethodId: robustUUID(false),
+  // Chave de idempotência: retry do mesmo formulário não duplica o pedido
+  clientRequestId: z.string().uuid().optional(),
   date: z.coerce.date().optional(),
   discount: robustNumber().optional().default(0),
   freight: robustNumber().optional().default(0),

@@ -24,6 +24,31 @@ const sequenceMap = {
     financialRecord: 'financialRecordSeq',
 };
 
+/**
+ * Reserva `count` códigos sequenciais de uma vez (UM upsert em vez de N).
+ * Retorna o primeiro cod da faixa: os códigos válidos são firstCod..firstCod+count-1.
+ * Reduz drasticamente as round-trips e o tempo de lock na linha de CompanySequence
+ * em criações em lote (ex.: itens de uma venda).
+ */
+export async function reserveSequenceRange(model, companyId, count, tx) {
+    const sequenceField = sequenceMap[model];
+    if (!sequenceField) {
+        throw new Error(`Sequência não configurada para model: ${model}`);
+    }
+    if (!Number.isInteger(count) || count <= 0) {
+        throw new Error(`Quantidade inválida para reserva de sequência: ${count}`);
+    }
+
+    const sequence = await tx.companySequence.upsert({
+        where: { companyId },
+        update: { [sequenceField]: { increment: count } },
+        create: { companyId, [sequenceField]: count },
+    });
+
+    const lastCod = sequence[sequenceField];
+    return lastCod - count + 1;
+}
+
 export async function createWithSequence(model, companyId, data, txExternal = null) {
 
     const run = async (tx) => {

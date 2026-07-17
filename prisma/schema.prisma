@@ -583,7 +583,11 @@ model Sale {
 
   nfeEmission NfeEmission?
 
+  // Chave de idempotência enviada pelo frontend: retry do mesmo formulário não duplica o pedido
+  clientRequestId String?
+
   @@unique([companyId, cod])
+  @@unique([companyId, clientRequestId])
   @@index([companyId])
   // Relatórios e listas de vendas filtram por empresa+período
   @@index([companyId, date])
