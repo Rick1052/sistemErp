@@ -64,6 +64,10 @@ export const asaasClient = {
     return request(environment, apiKey, 'GET', `/subscriptions/${encodeURIComponent(subscriptionId)}`);
   },
 
+  async listSubscriptionsByCustomer(environment, apiKey, customerId) {
+    return request(environment, apiKey, 'GET', `/subscriptions?customer=${encodeURIComponent(customerId)}&limit=20`);
+  },
+
   async cancelSubscription(environment, apiKey, subscriptionId) {
     return request(environment, apiKey, 'DELETE', `/subscriptions/${encodeURIComponent(subscriptionId)}`);
   },

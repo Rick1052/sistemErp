@@ -171,20 +171,36 @@ export const platformBillingService = {
     const customerId = await this.ensureCustomer(creds, company, cpfCnpj);
     const nextDueDate = nextDueDateForDay(dueDay);
 
-    const { status, data } = await asaasClient.createSubscription(creds.environment, creds.apiKey, {
-      customer: customerId,
-      billingType: billingType || 'UNDEFINED',
-      value: numericValue,
-      nextDueDate: formatYmd(nextDueDate),
-      cycle: 'MONTHLY',
-      description,
-      externalReference: company.id,
-    });
+    // Idempotência contra o Asaas: se uma tentativa anterior já criou assinatura ativa
+    // para este cliente (falha parcial), ADOTA a existente em vez de criar duplicata.
+    let data = null;
+    const { status: listStatus, data: listData } = await asaasClient.listSubscriptionsByCustomer(
+      creds.environment, creds.apiKey, customerId,
+    );
+    const existingActive = listStatus < 300
+      ? (listData?.data || []).find((s) => s.status === 'ACTIVE' && !s.deleted)
+      : null;
 
-    if (status >= 300 || !data?.id) {
-      const msg = data?.errors?.[0]?.description || 'Erro ao criar assinatura no Asaas';
-      logger.warn({ msg: '[platformBilling] Erro ao criar assinatura', status, data });
-      throw new AppError(msg, 400);
+    if (existingActive) {
+      logger.info(`[platformBilling] Adotando assinatura ativa existente no Asaas: ${existingActive.id}`);
+      data = existingActive;
+    } else {
+      const { status, data: created } = await asaasClient.createSubscription(creds.environment, creds.apiKey, {
+        customer: customerId,
+        billingType: billingType || 'UNDEFINED',
+        value: numericValue,
+        nextDueDate: formatYmd(nextDueDate),
+        cycle: 'MONTHLY',
+        description,
+        externalReference: company.id,
+      });
+
+      if (status >= 300 || !created?.id) {
+        const msg = created?.errors?.[0]?.description || 'Erro ao criar assinatura no Asaas';
+        logger.warn({ msg: '[platformBilling] Erro ao criar assinatura', status, data: created });
+        throw new AppError(msg, 400);
+      }
+      data = created;
     }
 
     await cacheBumpVersion({ companyId, resource: 'platform-billing' });
@@ -192,11 +208,11 @@ export const platformBillingService = {
     const subscriptionData = {
       asaasCustomerId: customerId,
       asaasSubscriptionId: data.id,
-      description,
-      value: numericValue,
+      description: data.description || description,
+      value: data.value != null ? Number(data.value) : numericValue,
       cycle: 'MONTHLY',
-      billingType: billingType || 'UNDEFINED',
-      nextDueDate,
+      billingType: data.billingType || billingType || 'UNDEFINED',
+      nextDueDate: data.nextDueDate ? new Date(`${data.nextDueDate}T12:00:00Z`) : nextDueDate,
       status: 'ACTIVE',
     };
 
@@ -335,6 +351,11 @@ export const platformBillingService = {
       : null;
     const dueDate = payment.dueDate ? new Date(`${payment.dueDate}T12:00:00Z`) : new Date();
     const value = Number(payment.value);
+    // Cobrança excluída no Asaas mantém status PENDING no payload + flag deleted —
+    // normalizamos para DELETED para não aparecer como "em aberto" no sistema.
+    const chargeStatus = (event === 'PAYMENT_DELETED' || payment.deleted === true)
+      ? 'DELETED'
+      : (payment.status || event);
 
     const charge = await prisma.platformCharge.upsert({
       where: { asaasPaymentId: payment.id },
@@ -344,12 +365,12 @@ export const platformBillingService = {
         asaasPaymentId: payment.id,
         value,
         dueDate,
-        status: payment.status || event,
+        status: chargeStatus,
         paidAt,
         invoiceUrl: payment.invoiceUrl || null,
       },
       update: {
-        status: payment.status || event,
+        status: chargeStatus,
         ...(isPaid ? { paidAt } : {}),
         ...(payment.invoiceUrl ? { invoiceUrl: payment.invoiceUrl } : {}),
       },
