@@ -49,6 +49,43 @@ export async function reserveSequenceRange(model, companyId, count, tx) {
     return lastCod - count + 1;
 }
 
+/**
+ * Reserva sequências de VÁRIOS models em UM único upsert.
+ * counts: { sale: 1, saleItem: 3, stockMovement: 3, financialRecord: 2 }
+ * Retorna { sale: firstCod, saleItem: firstCod, ... } — cods válidos: firstCod..firstCod+count-1.
+ * Colapsa todas as reservas de sequência de uma operação composta (ex.: criação de venda)
+ * em uma única round-trip, minimizando o tempo de lock na linha de CompanySequence.
+ */
+export async function reserveSequenceRanges(companyId, counts, tx) {
+    const entries = Object.entries(counts).filter(([, count]) => count > 0);
+    if (entries.length === 0) return {};
+
+    const update = {};
+    const create = { companyId };
+    for (const [model, count] of entries) {
+        const sequenceField = sequenceMap[model];
+        if (!sequenceField) throw new Error(`Sequência não configurada para model: ${model}`);
+        if (!Number.isInteger(count) || count <= 0) {
+            throw new Error(`Quantidade inválida para reserva de sequência (${model}): ${count}`);
+        }
+        update[sequenceField] = { increment: count };
+        create[sequenceField] = count;
+    }
+
+    const sequence = await tx.companySequence.upsert({
+        where: { companyId },
+        update,
+        create,
+    });
+
+    const firstCods = {};
+    for (const [model, count] of entries) {
+        const lastCod = sequence[sequenceMap[model]];
+        firstCods[model] = lastCod - count + 1;
+    }
+    return firstCods;
+}
+
 export async function createWithSequence(model, companyId, data, txExternal = null) {
 
     const run = async (tx) => {

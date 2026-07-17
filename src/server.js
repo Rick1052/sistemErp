@@ -4,6 +4,7 @@ dotenv.config()
 import app from './app.js'
 import logger from './utils/logger.js'
 import prisma from './database/prisma.js'
+import { getRedis } from './utils/redis.js'
 
 const PORT = process.env.PORT || 3000
 
@@ -13,6 +14,16 @@ const server = app.listen(PORT, () => {
     env: process.env.NODE_ENV,
     port: PORT
   })
+
+  // Warm-up do Redis em background: a 1ª requisição real já encontra a conexão pronta
+  // (se o Redis estiver indisponível, o cache simplesmente faz fallback — nunca bloqueia)
+  const redis = getRedis()
+  if (redis) {
+    redis.connect().then(
+      () => logger.info('[redis] Conectado (warm-up)'),
+      (err) => logger.warn(`[redis] Indisponível no warm-up: ${err?.message || err}`)
+    )
+  }
 })
 
 // Graceful Shutdown

@@ -12,7 +12,13 @@ async function ensureConnected(r) {
   if (!r) return false;
   if (r.status === 'ready') return true;
   try {
-    await r.connect();
+    // Espera no máximo ~250ms pela conexão. Se não der tempo, a requisição segue
+    // pelo fallback (banco) e a conexão continua sendo aberta em background —
+    // a próxima requisição já encontra o Redis pronto. Cache nunca adiciona latência.
+    await Promise.race([
+      r.connect().catch(() => {}),
+      new Promise((resolve) => setTimeout(resolve, 250)),
+    ]);
     return r.status === 'ready';
   } catch {
     return false;

@@ -1,7 +1,9 @@
 import prisma from '../../database/prisma.js';
+import { Prisma } from '@prisma/client';
 import { AppError } from '../../utils/AppError.js';
-import { createWithSequence, reserveSequenceRange } from "../../utils/createWithSequence.js";
+import { createWithSequence, reserveSequenceRanges } from "../../utils/createWithSequence.js";
 import { financeIntegrationService } from "../financial/financeIntegration.service.js";
+import { financialRecordService } from "../financial/financialRecord.service.js";
 import logger from '../../utils/logger.js';
 import { parseDateInput } from '../../utils/date.js';
 
@@ -108,19 +110,6 @@ export const saleService = {
       ...saleData
     } = data;
 
-    // Idempotência: se este formulário já criou um pedido (retry após erro/timeout),
-    // devolve o pedido existente em vez de duplicar.
-    if (clientRequestId) {
-      const existing = await prisma.sale.findFirst({
-        where: { companyId, clientRequestId },
-        select: { id: true },
-      });
-      if (existing) {
-        logger.info(`[saleService.create] Replay idempotente (clientRequestId=${clientRequestId}) -> venda ${existing.id}`);
-        return saleService.getById(companyId, existing.id);
-      }
-    }
-
     const saleDate = date ? parseDateInput(date) : new Date();
 
     // Persistir as parcelas planejadas para uso futuro se for Rascunho
@@ -142,46 +131,102 @@ export const saleService = {
       }
     }
 
+    // Parcelas com os dados de cheque da venda injetados (para o financeiro)
+    const installmentsWithCheque = installments.map((inst) => ({
+      ...inst,
+      chequeNumber: inst.chequeNumber || chequeNumber,
+      chequeOwner: inst.chequeOwner || chequeOwner,
+      chequeDueDate: inst.chequeDueDate || chequeDueDate,
+      chequeCustomerId: inst.chequeCustomerId || chequeCustomerId,
+      chequeHistory: inst.chequeHistory || chequeHistory,
+    }));
+
+    // ---- Pré-transação: todas as leituras de referência em PARALELO (1 round-trip) ----
+    // Inclui o check de idempotência: retry do mesmo formulário devolve o pedido já criado.
+    const installmentPmIds = [...new Set([
+      ...installmentsWithCheque.map((i) => i.paymentMethodId).filter(Boolean),
+      ...((installments.length === 0 && paymentMethodId) ? [paymentMethodId] : []),
+    ])];
+
+    const [existingByKey, saleStatus, warehouse, client, paymentMethodsList] = await Promise.all([
+      clientRequestId
+        ? prisma.sale.findFirst({ where: { companyId, clientRequestId }, select: { id: true } })
+        : Promise.resolve(null),
+      prisma.saleStatus.findFirst({ where: { id: statusId, companyId } }),
+      prisma.warehouse.findFirst({ where: { companyId } }),
+      saleData.clientId
+        ? prisma.client.findFirst({ where: { id: saleData.clientId, companyId }, select: { id: true, name: true } })
+        : Promise.resolve(null),
+      installmentPmIds.length > 0
+        ? prisma.paymentMethod.findMany({ where: { id: { in: installmentPmIds } } })
+        : Promise.resolve([]),
+    ]);
+
+    if (existingByKey) {
+      logger.info(`[saleService.create] Replay idempotente (clientRequestId=${clientRequestId}) -> venda ${existingByKey.id}`);
+      return saleService.getById(companyId, existingByKey.id);
+    }
+    if (!saleStatus) throw new AppError('Status de venda não encontrado', 404);
+    if (saleData.clientId && !client) throw new AppError('Cliente não encontrado', 404);
+
+    const stockAction = saleStatus.stockAction;
+    if (stockAction !== 'NONE' && !warehouse) throw new AppError('Depósito não encontrado.', 400);
+
+    // Planejamento do financeiro (puro, sem DB) — só para status que fatura (COMMIT)
+    const paymentMethodsById = new Map(paymentMethodsList.map((pm) => [pm.id, pm]));
+    const plan = stockAction === 'COMMIT'
+      ? financeIntegrationService.planReceivablesFromSale(
+          { clientId: saleData.clientId, saleDate, salePaymentMethodId: paymentMethodId, saleTotal: total },
+          installmentsWithCheque,
+          paymentMethodsById,
+        )
+      : { pending: [], immediate: [] };
+    const clientName = client?.name || 'Não Identificado';
+
+    // Quantidades agregadas por produto (mesmo produto 2x no pedido soma corretamente)
+    const qtyByProduct = new Map();
+    for (const item of items) {
+      qtyByProduct.set(item.productId, (qtyByProduct.get(item.productId) || 0) + item.quantity);
+    }
+
     try {
       const saleId = await prisma.$transaction(async (tx) => {
-        // 1. Get status details
-        const saleStatus = await tx.saleStatus.findFirst({
-          where: { id: statusId, companyId }
-        });
-        if (!saleStatus) throw new AppError('Status de venda não encontrado', 404);
-
-        // 2. Create Sale with sequence
-        const sale = await createWithSequence('sale', companyId, {
-          ...saleData,
-          clientRequestId, // Chave de idempotência (única por empresa)
-          date: saleDate,
-          statusId,
-          paymentMethodId, // Salvar no modelo Sale
-          installmentsData, // Salvar no modelo Sale (JSON)
-          chequeNumber, // Salvar no modelo Sale
-          chequeOwner, // Salvar no modelo Sale
-          chequeDueDate, // Salvar no modelo Sale
-          chequeCustomerId, // Salvar no modelo Sale
-          chequeHistory, // Salvar no modelo Sale
-          subtotal,
-          discount,
-          freight,
-          total,
+        // 1. TODAS as sequências da venda em UM upsert (venda + itens + movimentos + financeiro)
+        const cods = await reserveSequenceRanges(companyId, {
+          sale: 1,
+          saleItem: items.length,
+          ...(stockAction !== 'NONE' ? { stockMovement: items.length } : {}),
+          ...(plan.pending.length > 0 ? { financialRecord: plan.pending.length } : {}),
         }, tx);
 
-        // 3. Itens em lote: reserva a faixa de cods em UMA query e usa createMany.
-        // (Antes eram 2 queries de sequência + 1 create POR item — principal causa da
-        // transação longa e dos timeouts com o banco remoto.)
-        const stockAction = saleStatus.stockAction;
-        const warehouse = stockAction !== 'NONE'
-          ? await saleService._resolveWarehouse(tx, companyId)
-          : null;
+        // 2. Criação da venda (cod pré-reservado)
+        const sale = await tx.sale.create({
+          data: {
+            ...saleData,
+            companyId,
+            cod: cods.sale,
+            clientRequestId, // Chave de idempotência (única por empresa)
+            date: saleDate,
+            statusId,
+            paymentMethodId,
+            installmentsData,
+            chequeNumber,
+            chequeOwner,
+            chequeDueDate,
+            chequeCustomerId,
+            chequeHistory,
+            subtotal,
+            discount,
+            freight,
+            total,
+          },
+        });
 
-        const firstItemCod = await reserveSequenceRange('saleItem', companyId, items.length, tx);
+        // 3. Itens em lote (cods pré-reservados)
         await tx.saleItem.createMany({
           data: items.map((item, i) => ({
             companyId,
-            cod: firstItemCod + i,
+            cod: cods.saleItem + i,
             saleId: sale.id,
             productId: item.productId,
             quantity: item.quantity,
@@ -191,22 +236,29 @@ export const saleService = {
           })),
         });
 
-        // 4. Ação de estoque em lote (updates de produto por item + movimentos via createMany)
+        // 4. Estoque: UMA query para todos os produtos + movimentos via createMany
         if (stockAction === 'RESERVE' || stockAction === 'COMMIT') {
-          for (const item of items) {
-            await tx.product.update({
-              where: { id: item.productId },
-              data: stockAction === 'RESERVE'
-                ? { reservedStock: { increment: item.quantity } }
-                : { physicalStock: { decrement: item.quantity } },
-            });
+          const values = Prisma.join(
+            [...qtyByProduct.entries()].map(
+              ([productId, qty]) => Prisma.sql`(${productId}, ${qty}::int)`
+            )
+          );
+          if (stockAction === 'RESERVE') {
+            await tx.$executeRaw`
+              UPDATE "Product" AS p SET "reservedStock" = p."reservedStock" + v.qty
+              FROM (VALUES ${values}) AS v(id, qty)
+              WHERE p.id = v.id AND p."companyId" = ${companyId}`;
+          } else {
+            await tx.$executeRaw`
+              UPDATE "Product" AS p SET "physicalStock" = p."physicalStock" - v.qty
+              FROM (VALUES ${values}) AS v(id, qty)
+              WHERE p.id = v.id AND p."companyId" = ${companyId}`;
           }
 
-          const firstMovCod = await reserveSequenceRange('stockMovement', companyId, items.length, tx);
           await tx.stockMovement.createMany({
             data: items.map((item, i) => ({
               companyId,
-              cod: firstMovCod + i,
+              cod: cods.stockMovement + i,
               productId: item.productId,
               userId,
               type: stockAction === 'RESERVE' ? 'RESERVE' : 'OUT',
@@ -220,23 +272,36 @@ export const saleService = {
           });
         }
 
-        // 4. Generate financial record if status is COMMIT
-        if (saleStatus.stockAction === 'COMMIT') {
-          logger.info(`[saleService.create] Gerando financeiro para venda recém-criada ${sale.id}`);
-          const detailedSale = await tx.sale.findFirst({
-            where: { id: sale.id, companyId },
-            include: { client: { select: { id: true, name: true } } },
-          });
-          // Injetar dados do cheque nas parcelas para o financeiro
-          const installmentsWithCheque = installments.map((inst) => ({
-            ...inst,
-            chequeNumber: inst.chequeNumber || chequeNumber,
-            chequeOwner: inst.chequeOwner || chequeOwner,
-            chequeDueDate: inst.chequeDueDate || chequeDueDate,
-            chequeCustomerId: inst.chequeCustomerId || chequeCustomerId,
-            chequeHistory: inst.chequeHistory || chequeHistory,
-          }));
-          await financeIntegrationService.generateReceivableFromSale(companyId, detailedSale, installmentsWithCheque, tx);
+        // 5. Financeiro: parcelas PENDING em lote; liquidação imediata (rara) no caminho antigo
+        if (plan.pending.length > 0 || plan.immediate.length > 0) {
+          const baseDescription = `Venda #${sale.cod} - Cliente: ${clientName}`;
+          const describe = (r) => r.instTotal > 1
+            ? `${baseDescription} (${r.instIndex + 1}/${r.instTotal})`
+            : baseDescription;
+
+          if (plan.pending.length > 0) {
+            await tx.financialRecord.createMany({
+              data: plan.pending.map((r, i) => {
+                const { instIndex, instTotal, ...rec } = r;
+                return {
+                  ...rec,
+                  companyId,
+                  cod: cods.financialRecord + i,
+                  saleId: sale.id,
+                  description: describe(r),
+                };
+              }),
+            });
+          }
+
+          for (const r of plan.immediate) {
+            const { instIndex, instTotal, ...rec } = r;
+            await financialRecordService.createAndPay(companyId, {
+              ...rec,
+              saleId: sale.id,
+              description: describe(r),
+            }, tx);
+          }
         }
 
         return sale.id;

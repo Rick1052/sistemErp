@@ -29,7 +29,8 @@ export function getRedis() {
 
   redis = new Redis(url, {
     maxRetriesPerRequest: 1,
-    connectTimeout: 3000,
+    // Timeout curto: cache indisponível NUNCA pode segurar uma requisição do usuário
+    connectTimeout: 800,
     enableReadyCheck: true,
     lazyConnect: true,
   });
