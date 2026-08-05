@@ -37,6 +37,60 @@ function normalizeCreditUsed(creditUsed, total, clientId) {
   return value;
 }
 
+/**
+ * Regra 1 no pedido: quando a composição de pagamento (parcelas) supera o valor a
+ * financiar, o pedido é quitado normalmente e a diferença vira crédito do cliente.
+ *
+ * Os títulos são gerados exatamente como o usuário lançou — um cheque de R$ 400 é
+ * registrado como R$ 400 — e o excedente entra como crédito. Assim o contas a receber
+ * reflete o que o cliente vai efetivamente pagar, e o crédito registra o quanto disso
+ * é adiantamento.
+ *
+ * Retorna o valor creditado (0 quando não há excedente).
+ */
+async function applyOverpaymentCredit(tx, { companyId, sale, installmentsTotal, financedTotal, userId }) {
+  const excess = round2(Number(installmentsTotal || 0) - Number(financedTotal || 0));
+  if (excess <= EPSILON) return 0;
+
+  if (!sale.clientId) {
+    throw new AppError(
+      'O pagamento supera o total do pedido, mas não há cliente vinculado para receber o crédito em conta.',
+      400,
+    );
+  }
+
+  await clientCreditService.gerarCredito({
+    companyId,
+    clientId: sale.clientId,
+    amount: excess,
+    saleId: sale.id,
+    userId,
+    note: `Pagamento acima do total do pedido #${sale.cod}`,
+  }, tx);
+
+  logger.info(`[saleService] Pedido #${sale.cod}: excedente de ${excess} convertido em crédito do cliente.`);
+  return excess;
+}
+
+/** Soma das parcelas informadas, arredondada para 2 casas */
+const sumInstallments = (installments = []) =>
+  round2(installments.reduce((sum, inst) => sum + Number(inst.amount || 0), 0));
+
+/**
+ * A composição de pagamento pode ser MAIOR que o valor a financiar (vira crédito),
+ * mas nunca MENOR — aí faltaria dinheiro para cobrir o pedido.
+ */
+function assertInstallmentsCoverSale(installmentsTotal, financedTotal, creditUsed) {
+  if (financedTotal - installmentsTotal > 0.01) {
+    throw new AppError(
+      creditUsed > 0
+        ? `As parcelas somam ${formatBRL(installmentsTotal)} e não cobrem o valor a financiar (${formatBRL(financedTotal)} = total do pedido menos o crédito utilizado).`
+        : `As parcelas somam ${formatBRL(installmentsTotal)} e não cobrem o total da venda (${formatBRL(financedTotal)}).`,
+      400,
+    );
+  }
+}
+
 export const saleService = {
   async list(companyId, { page = 1, limit = 25, startDate, endDate, search, statusId }) {
     const skip = (page - 1) * limit;
@@ -162,17 +216,10 @@ export const saleService = {
     const creditUsed = normalizeCreditUsed(creditUsedInput, total, saleData.clientId);
     const financedTotal = round2(total - creditUsed);
 
-    // Validação básica de parcelas
+    // Parcelas podem superar o valor a financiar — o excedente vira crédito (Regra 1)
+    const installmentsTotal = sumInstallments(installments);
     if (installments && installments.length > 0) {
-      const totalInstallments = installments.reduce((sum, inst) => sum + Number(inst.amount), 0);
-      if (Math.abs(totalInstallments - financedTotal) > 0.01) {
-        throw new AppError(
-          creditUsed > 0
-            ? `A soma das parcelas deve ser igual ao total da venda menos o crédito utilizado (${formatBRL(financedTotal)}).`
-            : 'A soma das parcelas deve ser igual ao total da venda.',
-          400,
-        );
-      }
+      assertInstallmentsCoverSale(installmentsTotal, financedTotal, creditUsed);
     }
 
     // Parcelas com os dados de cheque da venda injetados (para o financeiro)
@@ -362,6 +409,18 @@ export const saleService = {
           }
         }
 
+        // 6. Excedente da composição de pagamento vira crédito do cliente (Regra 1).
+        //    Só quando o pedido fatura — em rascunho as parcelas ainda são um plano.
+        if (stockAction === 'COMMIT' && installments.length > 0) {
+          await applyOverpaymentCredit(tx, {
+            companyId,
+            sale: { id: sale.id, cod: sale.cod, clientId: saleData.clientId },
+            installmentsTotal,
+            financedTotal,
+            userId,
+          });
+        }
+
         return sale.id;
       }, { timeout: 30000 });
 
@@ -492,17 +551,10 @@ export const saleService = {
 
         const financedTotal = round2(total - creditUsed);
 
-        // Validação básica de parcelas
+        // Parcelas podem superar o valor a financiar — o excedente vira crédito (Regra 1)
+        const installmentsTotal = sumInstallments(installments);
         if (installments && installments.length > 0) {
-          const totalInstallments = installments.reduce((sum, inst) => sum + Number(inst.amount), 0);
-          if (Math.abs(totalInstallments - financedTotal) > 0.01) {
-            throw new AppError(
-              creditUsed > 0
-                ? `A soma das parcelas deve ser igual ao total da venda menos o crédito utilizado (${formatBRL(financedTotal)}).`
-                : 'A soma das parcelas deve ser igual ao total da venda.',
-              400,
-            );
-          }
+          assertInstallmentsCoverSale(installmentsTotal, financedTotal, creditUsed);
         }
 
         // 5. Update Sale
@@ -601,6 +653,17 @@ export const saleService = {
               chequeHistory: inst.chequeHistory || chequeHistory,
             }));
             await financeIntegrationService.generateReceivableFromSale(companyId, detailedSale, installmentsWithCheque, tx);
+
+            // Excedente da composição de pagamento vira crédito do cliente (Regra 1)
+            if (installments.length > 0) {
+              await applyOverpaymentCredit(tx, {
+                companyId,
+                sale: { id: updatedSale.id, cod: updatedSale.cod, clientId: newClientId },
+                installmentsTotal,
+                financedTotal,
+                userId,
+              });
+            }
           }
         }
       }, { timeout: 30000 });
@@ -894,6 +957,20 @@ export const saleService = {
             }));
             
             await financeIntegrationService.generateReceivableFromSale(companyId, updatedSale, instToUse, tx);
+
+            // Excedente da composição de pagamento vira crédito do cliente (Regra 1)
+            if (instToUse.length > 0) {
+              const instTotal = sumInstallments(instToUse);
+              const financedTotal = round2(Number(updatedSale.total) - round2(updatedSale.creditUsed ?? 0));
+              assertInstallmentsCoverSale(instTotal, financedTotal, round2(updatedSale.creditUsed ?? 0));
+              await applyOverpaymentCredit(tx, {
+                companyId,
+                sale: updatedSale,
+                installmentsTotal: instTotal,
+                financedTotal,
+                userId,
+              });
+            }
           }
         }
 
@@ -968,16 +1045,10 @@ export const saleService = {
         );
       }
 
+      // Parcelas podem superar o valor a financiar — o excedente vira crédito (Regra 1)
+      const instTotal = sumInstallments(instData);
       if (instData.length > 0) {
-        const sum = instData.reduce((s, i) => s + Number(i.amount), 0);
-        if (Math.abs(sum - financedTotal) > 0.01) {
-          throw new AppError(
-            creditUsed > 0
-              ? `A soma das parcelas difere do valor a financiar (${formatBRL(financedTotal)} = total do pedido menos o crédito utilizado). Ajuste as parcelas ou salve o pedido antes de lançar.`
-              : 'A soma das parcelas difere do total do pedido. Ajuste as parcelas ou salve o pedido antes de lançar.',
-            400,
-          );
-        }
+        assertInstallmentsCoverSale(instTotal, financedTotal, creditUsed);
       }
 
       if (instData.length === 0 && !sale.paymentMethodId) {
@@ -1011,6 +1082,17 @@ export const saleService = {
           'Não foi possível gerar os títulos. Verifique formas de pagamento, valores e datas das parcelas.',
           400
         );
+      }
+
+      // Excedente da composição de pagamento vira crédito do cliente (Regra 1)
+      if (instData.length > 0) {
+        await applyOverpaymentCredit(tx, {
+          companyId,
+          sale,
+          installmentsTotal: instTotal,
+          financedTotal,
+          userId,
+        });
       }
 
       return saleService.getById(companyId, id, tx);
