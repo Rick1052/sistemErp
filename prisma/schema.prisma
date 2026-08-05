@@ -67,6 +67,13 @@ enum PaymentValueDestination {
   BANK_ACCOUNT    // Conta bancária cadastrada (destinationAccountId)
 }
 
+/// Movimentação de crédito em conta (saldo em haver) do cliente
+enum ClientCreditType {
+  CREDIT     // Crédito gerado (ex.: pagamento acima do valor do título)
+  USAGE      // Crédito utilizado (abatimento em um pedido)
+  ADJUSTMENT // Ajuste manual / estorno de uma movimentação anterior
+}
+
 enum NfeAmbiente {
   homologacao
   producao
@@ -98,6 +105,7 @@ model User {
   stockMovements StockMovement[]
   budgetsSold    Budget[]        @relation("BudgetSeller")
   budgetHistory  BudgetHistory[]
+  clientCredits  ClientCredit[]
 }
 
 model Company {
@@ -129,6 +137,7 @@ model Company {
   paymentMethods      PaymentMethod[]
   financialCategories FinancialCategory[]
   financialRecords    FinancialRecord[]
+  clientCredits       ClientCredit[]
 
   // Receipt & Profile Info
   legalName    String? // Razão social (name = nome fantasia)
@@ -188,6 +197,7 @@ model CompanySequence {
   paymentMethodSeq     Int @default(0)
   financialCategorySeq Int @default(0)
   financialRecordSeq   Int @default(0)
+  clientCreditSeq      Int @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -242,11 +252,17 @@ model Client {
   companyId String
   company   Company @relation(fields: [companyId], references: [id])
 
+  /// Saldo de crédito em conta (em haver). Espelho denormalizado das movimentações
+  /// em ClientCredit: só é alterado dentro da mesma transação que grava a movimentação.
+  creditBalance Decimal @default(0) @db.Decimal(15, 2)
+
   // LEGACY (1ª versão, mantida para consistência com produção)
   asaasCustomerId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  creditMovements ClientCredit[]
 
   sales Sale[]
   budgets Budget[]
@@ -550,9 +566,13 @@ model Sale {
   discount      Decimal @default(0) @db.Decimal(15, 2)
   freight       Decimal @default(0) @db.Decimal(15, 2)
   total         Decimal @db.Decimal(15, 2)
+  /// Parte do total abatida com crédito em conta do cliente.
+  /// O valor financiado (parcelas/títulos) é sempre total - creditUsed.
+  creditUsed    Decimal @default(0) @db.Decimal(15, 2)
 
   items SaleItem[]
   financialRecords FinancialRecord[]
+  creditMovements  ClientCredit[]
 
   paymentMethodId String?
   paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
@@ -865,6 +885,7 @@ model FinancialRecord {
 
   transactions BankTransaction[]
   payments     FinancialRecordPayment[]
+  creditMovements ClientCredit[]
   asaasCharge  AsaasCharge?
 
   @@unique([companyId, cod])
@@ -882,7 +903,11 @@ model FinancialRecordPayment {
   financialRecordId String
   financialRecord   FinancialRecord @relation(fields: [financialRecordId], references: [id])
 
+  /// Parte do valor recebido que foi aplicada no título (nunca ultrapassa o saldo em aberto)
   amount          Decimal       @db.Decimal(15, 2)
+  /// Excedente recebido nesta baixa que virou crédito em conta do cliente.
+  /// O valor que entrou no banco é sempre amount + creditGenerated.
+  creditGenerated Decimal       @default(0) @db.Decimal(15, 2)
   paymentDate     DateTime      @default(now())
   bankAccountId   String
   bankAccount     BankAccount   @relation(fields: [bankAccountId], references: [id])
@@ -893,6 +918,7 @@ model FinancialRecordPayment {
   createdAt DateTime @default(now())
 
   bankTransactions BankTransaction[]
+  creditMovements  ClientCredit[]
 
   @@index([companyId])
   @@index([financialRecordId])
@@ -917,6 +943,57 @@ model BankTransaction {
   @@index([bankAccountId])
   @@index([date])
   @@index([financialRecordPaymentId])
+}
+
+//////////////////////////////////////////////////////
+// CRÉDITO EM CONTA DO CLIENTE (SALDO EM HAVER)
+//////////////////////////////////////////////////////
+
+/// Razão (extrato) do crédito em conta do cliente. É a fonte da verdade do saldo:
+/// Client.creditBalance é apenas o espelho mantido na mesma transação.
+/// Invariante de cada linha: previousBalance + amount = newBalance.
+model ClientCredit {
+  id        String  @id @default(uuid())
+  cod       Int
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  /// Pedido que originou (crédito devolvido) ou consumiu (utilização) a movimentação
+  saleId String?
+  sale   Sale?   @relation(fields: [saleId], references: [id])
+
+  /// Título/baixa que originou o crédito, quando veio de um recebimento a maior
+  financialRecordId        String?
+  financialRecord          FinancialRecord?        @relation(fields: [financialRecordId], references: [id])
+  financialRecordPaymentId String?
+  financialRecordPayment   FinancialRecordPayment? @relation(fields: [financialRecordPaymentId], references: [id])
+
+  type ClientCreditType
+
+  /// Delta com sinal aplicado ao saldo: positivo credita, negativo consome.
+  /// CREDIT é sempre positivo, USAGE sempre negativo, ADJUSTMENT pode ser qualquer um.
+  amount          Decimal @db.Decimal(15, 2)
+  previousBalance Decimal @db.Decimal(15, 2)
+  newBalance      Decimal @db.Decimal(15, 2)
+
+  note String?
+
+  /// Usuário responsável pela movimentação (null em rotinas automáticas sem sessão)
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, cod])
+  @@index([companyId])
+  @@index([clientId])
+  @@index([saleId])
+  // Extrato do cliente é sempre lido por cliente + ordem cronológica
+  @@index([companyId, clientId, createdAt])
 }
 
 //////////////////////////////////////////////////////

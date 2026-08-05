@@ -11,8 +11,13 @@ export const financeIntegrationService = {
    * `pending` (vai em createMany) ou `immediate` (liquidação imediata via createAndPay).
    * A descrição final (que depende do cod da venda) é montada pelo chamador.
    * Mantém as mesmas regras de generateReceivableFromSale.
+   *
+   * `saleTotal` aqui é o valor FINANCIADO (total do pedido menos o crédito em conta usado).
    */
   planReceivablesFromSale({ clientId, saleDate, salePaymentMethodId, saleTotal }, installmentsData = [], paymentMethodsById) {
+    // Pedido totalmente quitado com crédito em conta: nada a lançar
+    if (Number(saleTotal) <= 0.005) return { pending: [], immediate: [] };
+
     let insts = installmentsData;
     if ((!insts || insts.length === 0) && salePaymentMethodId) {
       insts = [{
@@ -61,6 +66,7 @@ export const financeIntegrationService = {
         dueDate: parseDateInput(inst.dueDate),
         date: parseDateInput(saleDate),
         paymentMethodId: inst.paymentMethodId,
+        clientId: clientId || null,
         bankAccountId,
         chequeNumber: inst.chequeNumber || null,
         chequeOwner: inst.chequeOwner || null,
@@ -92,21 +98,35 @@ export const financeIntegrationService = {
     return { pending, immediate };
   },
   /**
-   * Gera o financeiro a partir de uma Venda
+   * Gera o financeiro a partir de uma Venda.
+   *
+   * O que vira título é o valor FINANCIADO: total do pedido menos a parte já quitada
+   * com crédito em conta do cliente (Regra 10 — o crédito compõe o pagamento).
    */
   async generateReceivableFromSale(companyId, sale, installmentsData = [], tx = null) {
     const client = tx || prisma;
     const description = `Venda #${sale.cod} - Cliente: ${sale.client?.name || 'Não Identificado'}`;
     const records = [];
 
-    logger.info(`[financeIntegrationService] Gerando financeiro para venda #${sale.cod}. Total: ${sale.total}.`);
+    const creditUsed = Number(sale.creditUsed ?? 0);
+    const financedTotal = Number(sale.total) - creditUsed;
+
+    logger.info(
+      `[financeIntegrationService] Gerando financeiro para venda #${sale.cod}. Total: ${sale.total}, crédito: ${creditUsed}, a financiar: ${financedTotal}.`,
+    );
+
+    // Pedido inteiramente quitado com crédito em conta: não há título a gerar.
+    if (financedTotal <= 0.005) {
+      logger.info(`[financeIntegrationService] Venda #${sale.cod} quitada com crédito em conta. Nenhum título gerado.`);
+      return [];
+    }
 
     // Se não vierem parcelas no array, mas houver um paymentMethodId na venda, criamos uma parcela única
     if ((!installmentsData || installmentsData.length === 0) && sale.paymentMethodId) {
       logger.info(`[financeIntegrationService] Nenhuma parcela fornecida. Usando método de pagamento da venda: ${sale.paymentMethodId}`);
       installmentsData = [{
         paymentMethodId: sale.paymentMethodId,
-        amount: Number(sale.total),
+        amount: financedTotal,
         dueDate: new Date()
       }];
     }
@@ -163,6 +183,7 @@ export const financeIntegrationService = {
         date: parseDateInput(sale.date), // Herdar data da venda
         paymentMethodId: inst.paymentMethodId,
         saleId: sale.id,
+        clientId: sale.clientId || null,
         bankAccountId,
         chequeNumber: inst.chequeNumber || null,
         chequeOwner: inst.chequeOwner || null,

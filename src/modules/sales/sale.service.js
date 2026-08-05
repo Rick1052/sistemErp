@@ -4,8 +4,38 @@ import { AppError } from '../../utils/AppError.js';
 import { createWithSequence, reserveSequenceRanges } from "../../utils/createWithSequence.js";
 import { financeIntegrationService } from "../financial/financeIntegration.service.js";
 import { financialRecordService } from "../financial/financialRecord.service.js";
+import { clientCreditService, round2 } from "../clientCredit/clientCredit.service.js";
 import logger from '../../utils/logger.js';
 import { parseDateInput } from '../../utils/date.js';
+
+/** Meio centavo: tolerância nas comparações de valores monetários */
+const EPSILON = 0.005;
+
+const formatBRL = (value) =>
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0);
+
+/**
+ * Valida o crédito em conta informado no pedido e devolve o valor normalizado.
+ * O saldo em si é conferido de forma atômica na hora de consumir (clientCreditService).
+ */
+function normalizeCreditUsed(creditUsed, total, clientId) {
+  const value = round2(creditUsed ?? 0);
+
+  if (!Number.isFinite(value) || value < 0) {
+    throw new AppError('O valor de crédito utilizado não pode ser negativo.', 400);
+  }
+  if (value <= EPSILON) return 0;
+  if (!clientId) {
+    throw new AppError('Selecione o cliente antes de utilizar crédito em conta.', 400);
+  }
+  if (value > round2(total) + EPSILON) {
+    throw new AppError(
+      `O crédito utilizado (${formatBRL(value)}) não pode ser maior que o total do pedido (${formatBRL(total)}).`,
+      400,
+    );
+  }
+  return value;
+}
 
 export const saleService = {
   async list(companyId, { page = 1, limit = 25, startDate, endDate, search, statusId }) {
@@ -85,6 +115,10 @@ export const saleService = {
           },
         },
         financialRecords: true,
+        creditMovements: {
+          include: { user: { select: { id: true, name: true } } },
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
 
@@ -107,6 +141,7 @@ export const saleService = {
       chequeCustomerId,
       chequeHistory,
       clientRequestId,
+      creditUsed: creditUsedInput = 0,
       ...saleData
     } = data;
 
@@ -123,11 +158,20 @@ export const saleService = {
     }
     const total = subtotal - discount + freight;
 
+    // Crédito em conta abate o total: o que sobra é o valor efetivamente financiado
+    const creditUsed = normalizeCreditUsed(creditUsedInput, total, saleData.clientId);
+    const financedTotal = round2(total - creditUsed);
+
     // Validação básica de parcelas
     if (installments && installments.length > 0) {
       const totalInstallments = installments.reduce((sum, inst) => sum + Number(inst.amount), 0);
-      if (Math.abs(totalInstallments - total) > 0.01) {
-        throw new AppError('A soma das parcelas deve ser igual ao total da venda.', 400);
+      if (Math.abs(totalInstallments - financedTotal) > 0.01) {
+        throw new AppError(
+          creditUsed > 0
+            ? `A soma das parcelas deve ser igual ao total da venda menos o crédito utilizado (${formatBRL(financedTotal)}).`
+            : 'A soma das parcelas deve ser igual ao total da venda.',
+          400,
+        );
       }
     }
 
@@ -176,7 +220,7 @@ export const saleService = {
     const paymentMethodsById = new Map(paymentMethodsList.map((pm) => [pm.id, pm]));
     const plan = stockAction === 'COMMIT'
       ? financeIntegrationService.planReceivablesFromSale(
-          { clientId: saleData.clientId, saleDate, salePaymentMethodId: paymentMethodId, saleTotal: total },
+          { clientId: saleData.clientId, saleDate, salePaymentMethodId: paymentMethodId, saleTotal: financedTotal },
           installmentsWithCheque,
           paymentMethodsById,
         )
@@ -219,8 +263,22 @@ export const saleService = {
             discount,
             freight,
             total,
+            creditUsed,
           },
         });
+
+        // 2.1 Consumir o crédito em conta do cliente (Regras 4 e 5). Se o saldo não
+        //     cobrir, a transação inteira é desfeita: nada de pedido, estoque ou títulos.
+        if (creditUsed > 0) {
+          await clientCreditService.utilizarCredito({
+            companyId,
+            clientId: saleData.clientId,
+            amount: creditUsed,
+            saleId: sale.id,
+            userId,
+            note: `Crédito utilizado no pedido #${sale.cod}`,
+          }, tx);
+        }
 
         // 3. Itens em lote (cods pré-reservados)
         await tx.saleItem.createMany({
@@ -365,6 +423,7 @@ export const saleService = {
       chequeCustomerId,
       chequeHistory,
       clientRequestId: _ignoredClientRequestId, // idempotência é só do create
+      creditUsed: creditUsedInput,
       ...saleData
     } = data;
 
@@ -376,7 +435,7 @@ export const saleService = {
       await prisma.$transaction(async (tx) => {
         const oldSale = await tx.sale.findFirst({
           where: { id, companyId },
-          include: { items: true, status: true }
+          include: { items: true, status: true, _count: { select: { financialRecords: true } } }
         });
         if (!oldSale) throw new AppError('Venda não encontrada', 404);
 
@@ -406,11 +465,43 @@ export const saleService = {
         }
         const total = subtotal - discount + freight;
 
+        // 4.1 Crédito em conta: aplicamos só a DIFERENÇA em relação ao que o pedido
+        //     já consumia, para não debitar duas vezes o mesmo valor a cada edição.
+        const previousCredit = round2(oldSale.creditUsed ?? 0);
+        const newClientId = saleData.clientId || oldSale.clientId;
+        const clientChanged = newClientId !== oldSale.clientId;
+
+        // Campo ausente = manter o que já está aplicado (mas trocar de cliente zera:
+        // o crédito é do cliente anterior e volta para ele).
+        const creditUsed = creditUsedInput === undefined
+          ? (clientChanged ? 0 : previousCredit)
+          : normalizeCreditUsed(creditUsedInput, total, newClientId);
+
+        if (clientChanged && creditUsed > EPSILON) {
+          throw new AppError(
+            'O crédito em conta pertence ao cliente anterior. Zere o crédito utilizado antes de trocar o cliente do pedido.',
+            400,
+          );
+        }
+        if (Math.abs(round2(creditUsed - previousCredit)) > EPSILON && oldSale._count.financialRecords > 0) {
+          throw new AppError(
+            'Este pedido já possui títulos em contas a receber. Exclua ou estorne os títulos antes de alterar o crédito em conta utilizado.',
+            400,
+          );
+        }
+
+        const financedTotal = round2(total - creditUsed);
+
         // Validação básica de parcelas
         if (installments && installments.length > 0) {
           const totalInstallments = installments.reduce((sum, inst) => sum + Number(inst.amount), 0);
-          if (Math.abs(totalInstallments - total) > 0.01) {
-            throw new AppError('A soma das parcelas deve ser igual ao total da venda.', 400);
+          if (Math.abs(totalInstallments - financedTotal) > 0.01) {
+            throw new AppError(
+              creditUsed > 0
+                ? `A soma das parcelas deve ser igual ao total da venda menos o crédito utilizado (${formatBRL(financedTotal)}).`
+                : 'A soma das parcelas deve ser igual ao total da venda.',
+              400,
+            );
           }
         }
 
@@ -432,8 +523,44 @@ export const saleService = {
             discount,
             freight,
             total,
+            creditUsed,
           }
         });
+
+        // 5.1 Acertar o crédito. Se o pedido trocou de cliente, o valor volta INTEIRO
+        //     para o cliente anterior — crédito não migra entre clientes (Regra 11).
+        if (clientChanged) {
+          if (previousCredit > EPSILON) {
+            await clientCreditService.estornarMovimentacao({
+              companyId,
+              clientId: oldSale.clientId,
+              amount: previousCredit,
+              userId,
+              note: `Devolução de crédito — pedido #${updatedSale.cod} passou para outro cliente`,
+            }, tx);
+          }
+        } else {
+          const creditDelta = round2(creditUsed - previousCredit);
+          if (creditDelta > EPSILON) {
+            await clientCreditService.utilizarCredito({
+              companyId,
+              clientId: newClientId,
+              amount: creditDelta,
+              saleId: id,
+              userId,
+              note: `Crédito utilizado no pedido #${updatedSale.cod}`,
+            }, tx);
+          } else if (creditDelta < -EPSILON) {
+            await clientCreditService.estornarMovimentacao({
+              companyId,
+              clientId: newClientId,
+              amount: -creditDelta,
+              saleId: id,
+              userId,
+              note: `Devolução de crédito — pedido #${updatedSale.cod} editado`,
+            }, tx);
+          }
+        }
 
         // 6. Create new items and apply new stock actions
         const applyWarehouse = newStatus.stockAction !== 'NONE'
@@ -518,6 +645,25 @@ export const saleService = {
         for (const item of sale.items) {
           await saleService._rollbackStockAction(tx, companyId, userId, sale, item, sale.status.stockAction, false, rollbackWarehouse);
         }
+
+        // Devolver ao cliente o crédito que este pedido consumia
+        const creditUsed = round2(sale.creditUsed ?? 0);
+        if (creditUsed > EPSILON) {
+          await clientCreditService.estornarMovimentacao({
+            companyId,
+            clientId: sale.clientId,
+            amount: creditUsed,
+            userId,
+            note: `Devolução de crédito — pedido #${sale.cod} excluído`,
+          }, tx);
+        }
+
+        // As movimentações de crédito referenciam o pedido; soltamos o vínculo antes
+        // de apagá-lo para preservar o histórico do cliente (Regra 6).
+        await tx.clientCredit.updateMany({
+          where: { saleId: id },
+          data: { saleId: null },
+        });
 
         // Delete items and sale
         await tx.saleItem.deleteMany({ where: { saleId: id } });
@@ -659,6 +805,7 @@ export const saleService = {
 
         const newStatusName = newStatus.name.toUpperCase();
         const isReopening = ['OPEN', 'DRAFT', 'EM ABERTO', 'RASCUNHO', 'CANCELADO', 'CANCELED', 'CANCELADA'].includes(newStatusName);
+        const isCancelling = ['CANCELADO', 'CANCELED', 'CANCELADA'].includes(newStatusName);
 
         if (isReopening) {
           const financialRecords = await tx.financialRecord.findMany({ where: { saleId: id } });
@@ -669,6 +816,22 @@ export const saleService = {
           if (financialRecords.length > 0) {
             await tx.financialRecord.deleteMany({ where: { saleId: id, status: 'PENDING' } });
           }
+        }
+
+        // Cancelamento libera o crédito em conta que o pedido consumia. Reabertura
+        // NÃO libera: o pedido continua existindo e será salvo de novo com a mesma
+        // composição — quem quiser devolver o crédito edita o pedido e zera o campo.
+        const creditUsed = round2(sale.creditUsed ?? 0);
+        if (isCancelling && creditUsed > EPSILON) {
+          await clientCreditService.estornarMovimentacao({
+            companyId,
+            clientId: sale.clientId,
+            amount: creditUsed,
+            saleId: id,
+            userId,
+            note: `Devolução de crédito — pedido #${sale.cod} cancelado`,
+          }, tx);
+          await tx.sale.update({ where: { id }, data: { creditUsed: 0 } });
         }
 
         // 1. Reverter ação de estoque ANTIGA
@@ -795,11 +958,25 @@ export const saleService = {
           ? bodyInstallments
           : storedArr;
 
-      const total = Number(sale.total);
+      const creditUsed = round2(sale.creditUsed ?? 0);
+      const financedTotal = round2(Number(sale.total) - creditUsed);
+
+      if (financedTotal <= EPSILON) {
+        throw new AppError(
+          'Este pedido já está totalmente quitado com crédito em conta do cliente — não há títulos a gerar.',
+          400,
+        );
+      }
+
       if (instData.length > 0) {
         const sum = instData.reduce((s, i) => s + Number(i.amount), 0);
-        if (Math.abs(sum - total) > 0.01) {
-          throw new AppError('A soma das parcelas difere do total do pedido. Ajuste as parcelas ou salve o pedido antes de lançar.', 400);
+        if (Math.abs(sum - financedTotal) > 0.01) {
+          throw new AppError(
+            creditUsed > 0
+              ? `A soma das parcelas difere do valor a financiar (${formatBRL(financedTotal)} = total do pedido menos o crédito utilizado). Ajuste as parcelas ou salve o pedido antes de lançar.`
+              : 'A soma das parcelas difere do total do pedido. Ajuste as parcelas ou salve o pedido antes de lançar.',
+            400,
+          );
         }
       }
 

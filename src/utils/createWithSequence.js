@@ -22,6 +22,7 @@ const sequenceMap = {
     paymentMethod: 'paymentMethodSeq',
     financialCategory: 'financialCategorySeq',
     financialRecord: 'financialRecordSeq',
+    clientCredit: 'clientCreditSeq',
 };
 
 /**

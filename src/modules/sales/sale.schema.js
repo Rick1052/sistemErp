@@ -6,6 +6,16 @@ const robustNumber = (schema = z.number()) => z.preprocess((val) => {
   return isNaN(num) ? 0 : num;
 }, schema);
 
+/**
+ * Dinheiro opcional que PRESERVA `undefined` — ao contrário de robustNumber, que
+ * converte ausência em 0. Numa edição, campo ausente significa "não mexa", não "zere".
+ */
+const optionalMoney = (schema = z.number()) => z.preprocess((val) => {
+  if (val === '' || val === null || val === undefined) return undefined;
+  const num = Number(val);
+  return isNaN(num) ? undefined : num;
+}, schema.optional());
+
 const robustUUID = (isRequired = false) => z.preprocess((val) => {
   if (val === '' || val === null || val === undefined) return undefined;
   return val;
@@ -20,6 +30,9 @@ export const createSaleSchema = z.object({
   date: z.coerce.date().optional(),
   discount: robustNumber().optional().default(0),
   freight: robustNumber().optional().default(0),
+  /// Parte do total quitada com crédito em conta do cliente (Regras 4 e 5).
+  /// Ausente numa edição = manter o crédito que o pedido já usa.
+  creditUsed: optionalMoney(z.number().min(0, 'O crédito utilizado não pode ser negativo')),
   installments: z.array(z.object({
     paymentMethodId: robustUUID(true),
     amount: robustNumber(),

@@ -9,6 +9,7 @@ import logger from './utils/logger.js'
 import authRoutes from './modules/auth/auth.routes.js'
 import companyRoutes from './modules/company/company.routes.js'
 import clientRoutes from './modules/client/client.routes.js'
+import clientCreditRoutes from './modules/clientCredit/clientCredit.routes.js'
 import categoryProduct from './modules/products/category/category.routes.js'
 import supplierProduct from './modules/products/supplier/supplier.routes.js'
 import brandProduct from './modules/products/brand/brand.routes.js'
@@ -120,6 +121,7 @@ app.get('/api', (req, res) => {
 app.use('/api/auth', authRoutes)
 app.use('/api/company', companyRoutes)
 app.use('/api/clients', clientRoutes)
+app.use('/api/client-credits', clientCreditRoutes)
 app.use('/api/dashboard', dashboardRoutes)
 
 // Router Products

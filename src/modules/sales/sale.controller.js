@@ -60,6 +60,8 @@ export const saleController = {
 
     const sale = await saleService.create(companyId, userId, formattedData);
     await cacheBumpVersion({ companyId, resource: 'sales' });
+    // O pedido pode ter consumido crédito em conta — a listagem de clientes mostra o saldo
+    await cacheBumpVersion({ companyId, resource: 'clients' });
     return res.status(201).json(sale);
   }),
 
@@ -81,6 +83,7 @@ export const saleController = {
 
     const sale = await saleService.update(companyId, userId, id, formattedData);
     await cacheBumpVersion({ companyId, resource: 'sales' });
+    await cacheBumpVersion({ companyId, resource: 'clients' });
     return res.json(sale);
   }),
 
@@ -90,6 +93,7 @@ export const saleController = {
     const { id } = req.params;
     const result = await saleService.delete(companyId, userId, id);
     await cacheBumpVersion({ companyId, resource: 'sales' });
+    await cacheBumpVersion({ companyId, resource: 'clients' });
     return res.json(result);
   }),
 
@@ -100,6 +104,7 @@ export const saleController = {
     const { statusId, installments } = req.body;
     const sale = await saleService.updateStatus(companyId, userId, id, statusId, installments);
     await cacheBumpVersion({ companyId, resource: 'sales' });
+    await cacheBumpVersion({ companyId, resource: 'clients' });
     return res.json(sale);
   }),
 

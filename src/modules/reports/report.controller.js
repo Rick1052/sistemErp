@@ -307,12 +307,13 @@ export const reportController = {
   }),
 
   getChequesReport: asyncHandler(async (req, res) => {
-    const { startDate, endDate, status, clientName } = req.query;
+    const { startDate, endDate, status, clientName, search } = req.query;
     const companyId = req.companyId;
 
     const where = {
       companyId,
       chequeNumber: { not: null },
+      AND: [],
     };
 
     if (startDate || endDate) {
@@ -331,11 +332,39 @@ export const reportController = {
     }
 
     if (clientName) {
-      where.OR = [
-        { chequeCustomer: { name: { contains: clientName, mode: 'insensitive' } } },
-        { client: { name: { contains: clientName, mode: 'insensitive' } } }
-      ];
+      where.AND.push({
+        OR: [
+          { chequeCustomer: { name: { contains: clientName, mode: 'insensitive' } } },
+          { client: { name: { contains: clientName, mode: 'insensitive' } } },
+        ],
+      });
     }
+
+    // Busca por número do cheque ou titular.
+    if (search) {
+      const term = String(search).trim();
+      const or = [
+        { chequeOwner: { contains: term, mode: 'insensitive' } },
+        { description: { contains: term, mode: 'insensitive' } },
+      ];
+
+      if (/^\d+$/.test(term)) {
+        // Número puro: os cheques são gravados com zeros à esquerda de forma
+        // inconsistente ("000726" e "3100" convivem). Casamos o valor exato em
+        // todas as larguras de zero, para "726" achar "000726" sem arrastar
+        // "001413" junto — o que um `contains` faria.
+        const base = term.replace(/^0+/, '') || '0';
+        const variantes = new Set([term, base]);
+        for (let len = base.length + 1; len <= 8; len++) variantes.add(base.padStart(len, '0'));
+        for (const v of variantes) or.push({ chequeNumber: v });
+      } else {
+        or.push({ chequeNumber: { contains: term, mode: 'insensitive' } });
+      }
+
+      where.AND.push({ OR: or });
+    }
+
+    if (where.AND.length === 0) delete where.AND;
 
     const cheques = await prisma.financialRecord.findMany({
       where,
@@ -356,7 +385,13 @@ export const reportController = {
           } 
         },
       },
-      orderBy: { date: 'desc' },
+      // Controle de cheque se organiza pelo "bom para", não pela data da venda.
+      // Ordenar por `date` jogava um cheque recém-lançado numa venda antiga para
+      // o meio da lista, dando a impressão de que não tinha entrado.
+      orderBy: [
+        { chequeDueDate: { sort: 'desc', nulls: 'last' } },
+        { cod: 'desc' },
+      ],
     });
 
     const summary = await prisma.financialRecord.aggregate({

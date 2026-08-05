@@ -33,6 +33,15 @@ export const globalErrorHandler = (err, req, res, next) => {
     });
   }
 
+  // Chave estrangeira: o registro ainda é referenciado por outro (ex.: título
+  // com baixa lançada). Antes virava 500 "erro interno" sem explicação.
+  if (err.code === 'P2003') {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Este registro não pode ser excluído porque possui lançamentos vinculados. Remova os lançamentos dependentes primeiro.'
+    });
+  }
+
   // AppError (Operational)
   if (err.isOperational) {
     return res.status(statusCode).json({

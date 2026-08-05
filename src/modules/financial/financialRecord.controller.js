@@ -3,6 +3,9 @@ import { asyncHandler } from '../../utils/asyncHandler.js';
 import { parseDateInput } from '../../utils/date.js';
 import { cacheBumpVersion, cacheGetOrSetJSONWithStatus, cacheKeyFromReq } from '../../utils/cache.js';
 
+const formatBRL = (value) =>
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0);
+
 export const financialRecordController = {
   list: asyncHandler(async (req, res) => {
     const key = await cacheKeyFromReq({
@@ -72,6 +75,7 @@ export const financialRecordController = {
 
     const record = await financialRecordService.create(req.companyId, data);
     await cacheBumpVersion({ companyId: req.companyId, resource: 'financialRecords' });
+    await cacheBumpVersion({ companyId: req.companyId, resource: 'reports' });
     res.status(201).json(record);
   }),
 
@@ -103,25 +107,59 @@ export const financialRecordController = {
 
     const record = await financialRecordService.update(req.companyId, req.params.id, data);
     await cacheBumpVersion({ companyId: req.companyId, resource: 'financialRecords' });
+    await cacheBumpVersion({ companyId: req.companyId, resource: 'reports' });
     res.json(record);
   }),
 
   pay: asyncHandler(async (req, res) => {
-    const record = await financialRecordService.pay(req.companyId, req.params.id, req.body);
+    const record = await financialRecordService.pay(req.companyId, req.params.id, {
+      ...req.body,
+      userId: req.user.id,
+    });
     await cacheBumpVersion({ companyId: req.companyId, resource: 'financialRecords' });
+    await cacheBumpVersion({ companyId: req.companyId, resource: 'reports' });
     await cacheBumpVersion({ companyId: req.companyId, resource: 'bankStatement' });
-    res.json({ message: 'Título baixado com sucesso', record });
+
+    const creditGenerated = Number(record.creditGenerated || 0);
+    if (creditGenerated > 0) {
+      // O saldo do cliente mudou: a listagem de clientes mostra crédito em conta
+      await cacheBumpVersion({ companyId: req.companyId, resource: 'clients' });
+    }
+
+    res.json({
+      message: creditGenerated > 0
+        ? `Título baixado. Gerado crédito em conta de ${formatBRL(creditGenerated)} para o cliente.`
+        : 'Título baixado com sucesso',
+      record,
+      creditGenerated,
+    });
+  }),
+
+  reverse: asyncHandler(async (req, res) => {
+    const record = await financialRecordService.reverse(
+      req.companyId,
+      req.params.id,
+      req.body?.paymentId || null,
+      req.user.id,
+    );
+    await cacheBumpVersion({ companyId: req.companyId, resource: 'financialRecords' });
+    await cacheBumpVersion({ companyId: req.companyId, resource: 'reports' });
+    await cacheBumpVersion({ companyId: req.companyId, resource: 'bankStatement' });
+    await cacheBumpVersion({ companyId: req.companyId, resource: 'clients' });
+    res.json({ message: 'Baixa estornada com sucesso', record });
   }),
 
   cancel: asyncHandler(async (req, res) => {
     const record = await financialRecordService.cancel(req.companyId, req.params.id);
     await cacheBumpVersion({ companyId: req.companyId, resource: 'financialRecords' });
+    await cacheBumpVersion({ companyId: req.companyId, resource: 'reports' });
     res.json({ message: 'Título cancelado com sucesso', record });
   }),
 
   delete: asyncHandler(async (req, res) => {
     await financialRecordService.delete(req.companyId, req.params.id);
     await cacheBumpVersion({ companyId: req.companyId, resource: 'financialRecords' });
+    await cacheBumpVersion({ companyId: req.companyId, resource: 'reports' });
     res.status(204).send();
   }),
 };

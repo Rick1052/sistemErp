@@ -43,6 +43,7 @@ router.post('/records', financialRecordController.create);
 router.put('/records/:id', financialRecordController.update);
 router.patch('/records/:id', financialRecordController.update);
 router.patch('/records/:id/pay', financialRecordController.pay);
+router.patch('/records/:id/reverse', financialRecordController.reverse);
 router.patch('/records/:id/cancel', financialRecordController.cancel);
 router.delete('/records/:id', financialRecordController.delete);
 
