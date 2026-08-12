@@ -394,7 +394,7 @@ export const financialRecordService = {
           chequeNumber: chequeNumber || record.chequeNumber,
           chequeOwner: chequeOwner || record.chequeOwner,
           chequeDueDate: chequeDueDate
-            ? new Date(typeof chequeDueDate === 'string' && chequeDueDate.length === 10 ? `${chequeDueDate}T12:00:00Z` : chequeDueDate)
+            ? parseDateInput(chequeDueDate)
             : record.chequeDueDate,
           chequeCustomerId: chequeCustomerId || record.chequeCustomerId,
           chequeHistory: chequeHistory !== undefined ? chequeHistory : record.chequeHistory,

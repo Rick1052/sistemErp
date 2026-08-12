@@ -46,11 +46,13 @@ export const saleController = {
   create: asyncHandler(async (req, res) => {
     const { companyId } = req;
     const { id: userId } = req.user;
-    const { date, ...rest } = req.validatedBody ?? req.body;
+    const { date, chequeDueDate, ...rest } = req.validatedBody ?? req.body;
 
     const formattedData = {
       ...rest,
-      date: parseDateInput(date)
+      date: parseDateInput(date),
+      // Vem como string do schema; o Sale grava direto na coluna DateTime
+      chequeDueDate: chequeDueDate ? parseDateInput(chequeDueDate) : undefined,
     };
 
     // Validar se a data é válida
@@ -69,11 +71,13 @@ export const saleController = {
     const { companyId } = req;
     const { id: userId } = req.user;
     const { id } = req.params;
-    const { date, ...rest } = req.validatedBody ?? req.body;
+    const { date, chequeDueDate, ...rest } = req.validatedBody ?? req.body;
 
     const formattedData = {
       ...rest,
-      date: parseDateInput(date)
+      date: parseDateInput(date),
+      // Vem como string do schema; o Sale grava direto na coluna DateTime
+      chequeDueDate: chequeDueDate ? parseDateInput(chequeDueDate) : undefined,
     };
 
     // Validar se a data é válida

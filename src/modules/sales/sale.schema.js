@@ -27,7 +27,9 @@ export const createSaleSchema = z.object({
   paymentMethodId: robustUUID(false),
   // Chave de idempotência: retry do mesmo formulário não duplica o pedido
   clientRequestId: z.string().uuid().optional(),
-  date: z.coerce.date().optional(),
+  // Sem z.coerce.date(): ele converteria "YYYY-MM-DD" em 00:00 UTC (= dia anterior no
+  // fuso do Brasil). A string crua chega ao parseDateInput, que ancora no meio-dia UTC.
+  date: z.string().or(z.date()).optional(),
   discount: robustNumber().optional().default(0),
   freight: robustNumber().optional().default(0),
   /// Parte do total quitada com crédito em conta do cliente (Regras 4 e 5).
@@ -39,7 +41,7 @@ export const createSaleSchema = z.object({
     dueDate: z.string().or(z.date()),
     chequeNumber: z.string().optional(),
     chequeOwner: z.string().optional(),
-    chequeDueDate: z.coerce.date().optional().or(z.string().optional()),
+    chequeDueDate: z.string().or(z.date()).optional(),
     chequeCustomerId: robustUUID(false),
     chequeHistory: z.string().optional(),
   })).optional(),
@@ -52,7 +54,7 @@ export const createSaleSchema = z.object({
   // Campos de cheque (passados para o financeiro, mas não salvos na Venda)
   chequeNumber: z.string().optional(),
   chequeOwner: z.string().optional(),
-  chequeDueDate: z.coerce.date().optional().or(z.string().optional()),
+  chequeDueDate: z.string().or(z.date()).optional(),
   chequeCustomerId: robustUUID(false),
 });
 
@@ -71,7 +73,7 @@ export const generateReceivablesSchema = z.object({
     dueDate: z.string().or(z.date()),
     chequeNumber: z.string().optional(),
     chequeOwner: z.string().optional(),
-    chequeDueDate: z.coerce.date().optional().or(z.string().optional()),
+    chequeDueDate: z.string().or(z.date()).optional(),
     chequeCustomerId: robustUUID(false),
     chequeHistory: z.string().optional(),
   })).optional(),
