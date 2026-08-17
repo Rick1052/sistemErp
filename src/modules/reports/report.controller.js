@@ -4,6 +4,20 @@ import { AppError } from '../../utils/AppError.js';
 import { productSalesReportService } from './productSalesReport.service.js';
 import { salesReportService } from './salesReport.service.js';
 import { commercialSalesReportService } from './commercialSalesReport.service.js';
+import { resolveCostCenterScope } from '../costCenters/costCenter.service.js';
+
+function bankTransactionCostCenterWhere(costCenterScope) {
+  if (!Object.hasOwn(costCenterScope, 'costCenterId')) return {};
+  if (costCenterScope.costCenterId === null) {
+    return {
+      OR: [
+        { financialRecordId: null },
+        { financialRecord: { is: { costCenterId: null } } },
+      ],
+    };
+  }
+  return { financialRecord: { is: { costCenterId: costCenterScope.costCenterId } } };
+}
 
 export const reportController = {
   /**
@@ -23,14 +37,19 @@ export const reportController = {
    * 2. RELATÓRIO DE CONTAS A PAGAR / RECEBER (GET /api/reports/financial)
    */
   getFinancialReport: asyncHandler(async (req, res) => {
-    const { startDate, endDate, type, status } = req.query;
+    const { startDate, endDate, type, status, costCenterScope } = req.query;
     const companyId = req.companyId;
 
     if (!type || !['PAYABLE', 'RECEIVABLE'].includes(type)) {
       throw new AppError('O parâmetro "type" (PAYABLE ou RECEIVABLE) é obrigatório.', 400);
     }
 
-    const where = {
+    const resolvedCostCenterScope = await resolveCostCenterScope(
+      prisma,
+      companyId,
+      costCenterScope,
+    );
+    const baseWhere = {
       companyId,
       type,
       dueDate: {
@@ -41,8 +60,9 @@ export const reportController = {
           return d;
         })() : undefined,
       },
-      status: status || undefined,
+      ...resolvedCostCenterScope,
     };
+    const where = { ...baseWhere, status: status || undefined };
 
     const records = await prisma.financialRecord.findMany({
       where,
@@ -51,6 +71,7 @@ export const reportController = {
         supplier: true,
         category: true,
         bankAccount: true,
+        costCenter: true,
       },
       orderBy: { dueDate: 'asc' },
     });
@@ -58,18 +79,7 @@ export const reportController = {
     // Agrupamento por status usando groupBy para performance
     const groups = await prisma.financialRecord.groupBy({
       by: ['status'],
-      where: {
-        companyId,
-        type,
-        dueDate: {
-          gte: startDate ? new Date(startDate) : undefined,
-          lte: endDate ? (() => {
-            const d = new Date(endDate);
-            d.setHours(23, 59, 59, 999);
-            return d;
-          })() : undefined,
-        },
-      },
+      where: baseWhere,
       _sum: {
         amount: true,
       },
@@ -100,6 +110,7 @@ export const reportController = {
           lt: today,
           gte: startDate ? new Date(startDate) : undefined,
         },
+        ...resolvedCostCenterScope,
       },
       _sum: {
         amount: true,
@@ -117,7 +128,7 @@ export const reportController = {
    * 3. RAZÃO BANCÁRIO / EXTRATO (GET /api/reports/bank-statement)
    */
   getBankStatement: asyncHandler(async (req, res) => {
-    const { startDate, endDate, bankAccountId } = req.query;
+    const { startDate, endDate, bankAccountId, costCenterScope } = req.query;
     const companyId = req.companyId;
 
     if (!bankAccountId) {
@@ -140,55 +151,56 @@ export const reportController = {
       throw new AppError('Conta bancária não encontrada.', 404);
     }
 
+    const resolvedCostCenterScope = await resolveCostCenterScope(
+      prisma,
+      companyId,
+      costCenterScope,
+    );
+    const scopedTransactionWhere = bankTransactionCostCenterWhere(resolvedCostCenterScope);
+
     // 2. Calcular o saldo inicial na startDate
     // Saldo Inicial = Saldo de abertura da conta + (Créditos - Débitos antes da startDate)
-    const previousTransactions = await prisma.bankTransaction.aggregate({
-      where: {
-        bankAccountId,
-        date: {
-          lt: start,
-        },
-      },
-      _sum: {
-        amount: true,
-      },
-    });
-    
     // Note: No sistema, assumimos que TransactionType define se é positivo ou negativo? 
     // Olhando o schema: TransactionType { CREDIT, DEBIT }.
     // Precisamos somar créditos e subtrair débitos.
     
     const creditsBefore = await prisma.bankTransaction.aggregate({
-      where: { bankAccountId, type: 'CREDIT', date: { lt: start } },
+      where: { companyId, bankAccountId, type: 'CREDIT', date: { lt: start }, ...scopedTransactionWhere },
       _sum: { amount: true }
     });
     const debitsBefore = await prisma.bankTransaction.aggregate({
-      where: { bankAccountId, type: 'DEBIT', date: { lt: start } },
+      where: { companyId, bankAccountId, type: 'DEBIT', date: { lt: start }, ...scopedTransactionWhere },
       _sum: { amount: true }
     });
 
-    const initialBalanceOnDate = Number(bankAccount.initialBalance) + 
+    const includeAccountOpeningBalance =
+      !Object.hasOwn(resolvedCostCenterScope, 'costCenterId') ||
+      resolvedCostCenterScope.costCenterId === null;
+    const initialBalanceOnDate = (includeAccountOpeningBalance ? Number(bankAccount.initialBalance) : 0) +
       (Number(creditsBefore._sum.amount || 0) - Number(debitsBefore._sum.amount || 0));
 
     // 3. Buscar transações no período
     const transactions = await prisma.bankTransaction.findMany({
       where: {
         bankAccountId,
+        companyId,
         date: {
           gte: start,
           lte: end,
         },
+        ...scopedTransactionWhere,
       },
+      include: { financialRecord: { include: { costCenter: true } } },
       orderBy: { date: 'asc' },
     });
 
     // 4. Totais do período
     const periodCredits = await prisma.bankTransaction.aggregate({
-      where: { bankAccountId, type: 'CREDIT', date: { gte: start, lte: end } },
+      where: { companyId, bankAccountId, type: 'CREDIT', date: { gte: start, lte: end }, ...scopedTransactionWhere },
       _sum: { amount: true }
     });
     const periodDebits = await prisma.bankTransaction.aggregate({
-      where: { bankAccountId, type: 'DEBIT', date: { gte: start, lte: end } },
+      where: { companyId, bankAccountId, type: 'DEBIT', date: { gte: start, lte: end }, ...scopedTransactionWhere },
       _sum: { amount: true }
     });
 
@@ -211,7 +223,7 @@ export const reportController = {
    * 4. DRE - DEMONSTRAÇÃO DO RESULTADO (GET /api/reports/dre)
    */
   getDREReport: asyncHandler(async (req, res) => {
-    const { startDate, endDate } = req.query;
+    const { startDate, endDate, costCenterScope } = req.query;
     const companyId = req.companyId;
 
     if (!startDate || !endDate) {
@@ -221,10 +233,15 @@ export const reportController = {
     const start = new Date(startDate);
     const end = new Date(endDate);
     end.setHours(23, 59, 59, 999);
+    const resolvedCostCenterScope = await resolveCostCenterScope(
+      prisma,
+      companyId,
+      costCenterScope,
+    );
 
     // 1. Receitas: Somar Vendas não canceladas pela data de faturamento (Competência)
     const sales = await prisma.sale.findMany({
-      where: { companyId, date: { gte: start, lte: end } },
+      where: { companyId, date: { gte: start, lte: end }, ...resolvedCostCenterScope },
       include: { status: true }
     });
 
@@ -242,7 +259,8 @@ export const reportController = {
         companyId,
         type: 'PAYABLE',
         status: { not: 'CANCELLED' },
-        dueDate: { gte: start, lte: end }
+        dueDate: { gte: start, lte: end },
+        ...resolvedCostCenterScope,
       },
       include: { category: true }
     });
@@ -307,13 +325,20 @@ export const reportController = {
   }),
 
   getChequesReport: asyncHandler(async (req, res) => {
-    const { startDate, endDate, status, clientName, search } = req.query;
+    const { startDate, endDate, status, clientName, search, costCenterScope } = req.query;
     const companyId = req.companyId;
+
+    const resolvedCostCenterScope = await resolveCostCenterScope(
+      prisma,
+      companyId,
+      costCenterScope,
+    );
 
     const where = {
       companyId,
       chequeNumber: { not: null },
       AND: [],
+      ...resolvedCostCenterScope,
     };
 
     if (startDate || endDate) {
@@ -371,6 +396,7 @@ export const reportController = {
       include: {
         chequeCustomer: true,
         client: true,
+        costCenter: true,
         sale: { 
           select: { 
             cod: true,

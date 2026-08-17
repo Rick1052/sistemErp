@@ -1,5 +1,6 @@
 import prisma from '../../database/prisma.js';
 import { Prisma } from '@prisma/client';
+import { resolveCostCenterScope } from '../costCenters/costCenter.service.js';
 
 function parseEndDate(endDate) {
   const d = new Date(endDate);
@@ -39,7 +40,7 @@ function round2(val) {
   return Math.round(toNumber(val) * 100) / 100;
 }
 
-function buildSaleFilters(companyId, { start, end, statusId, clientId }) {
+function buildSaleFilters(companyId, { start, end, statusId, clientId, costCenterScope = {} }) {
   const parts = [
     Prisma.sql`s."companyId" = ${companyId}`,
     Prisma.sql`s.date >= ${start}`,
@@ -49,6 +50,12 @@ function buildSaleFilters(companyId, { start, end, statusId, clientId }) {
 
   if (statusId) parts.push(Prisma.sql`s."statusId" = ${statusId}`);
   if (clientId) parts.push(Prisma.sql`s."clientId" = ${clientId}`);
+  if (Object.hasOwn(costCenterScope, 'costCenterId')) {
+    if (costCenterScope.costCenterId === null) parts.push(Prisma.sql`s."costCenterId" IS NULL`);
+    else if (typeof costCenterScope.costCenterId === 'object') {
+      parts.push(Prisma.sql`s."costCenterId" IS NOT NULL`);
+    } else parts.push(Prisma.sql`s."costCenterId" = ${costCenterScope.costCenterId}`);
+  }
 
   return Prisma.join(parts, ' AND ');
 }
@@ -58,7 +65,7 @@ export const salesReportService = {
 
   async getSummary(companyId, filters) {
     const { start, end } = resolveDateRange(filters);
-    const whereSql = buildSaleFilters(companyId, { start, end, statusId: filters.statusId, clientId: filters.clientId });
+    const whereSql = buildSaleFilters(companyId, { start, end, ...filters });
 
     const [row] = await prisma.$queryRaw`
       SELECT
@@ -88,7 +95,7 @@ export const salesReportService = {
 
   async getCharts(companyId, filters) {
     const { start, end } = resolveDateRange(filters);
-    const whereSql = buildSaleFilters(companyId, { start, end, statusId: filters.statusId, clientId: filters.clientId });
+    const whereSql = buildSaleFilters(companyId, { start, end, ...filters });
 
     const [revenueByMonth, salesByStatus, topClients] = await Promise.all([
       prisma.$queryRaw`
@@ -152,7 +159,7 @@ export const salesReportService = {
 
   async getSalesList(companyId, filters, page = 1, limit = 20) {
     const { start, end } = resolveDateRange(filters);
-    const whereSql = buildSaleFilters(companyId, { start, end, statusId: filters.statusId, clientId: filters.clientId });
+    const whereSql = buildSaleFilters(companyId, { start, end, ...filters });
     const offset = (page - 1) * limit;
 
     const [countRow] = await prisma.$queryRaw`
@@ -175,14 +182,16 @@ export const salesReportService = {
         ss.name AS "statusName",
         ss.color AS "statusColor",
         pm.name AS "paymentMethodName",
+        cc.name AS "costCenterName",
         COUNT(si.id)::int AS "itemsCount"
       FROM "Sale" s
       INNER JOIN "SaleStatus" ss ON ss.id = s."statusId"
       INNER JOIN "Client" c ON c.id = s."clientId"
       LEFT JOIN "PaymentMethod" pm ON pm.id = s."paymentMethodId"
+      LEFT JOIN "CostCenter" cc ON cc.id = s."costCenterId" AND cc."companyId" = s."companyId"
       LEFT JOIN "SaleItem" si ON si."saleId" = s.id
       WHERE ${whereSql}
-      GROUP BY s.id, s.cod, s.date, s.subtotal, s.discount, s.freight, s.total, c.name, ss.name, ss.color, pm.name
+      GROUP BY s.id, s.cod, s.date, s.subtotal, s.discount, s.freight, s.total, c.name, ss.name, ss.color, pm.name, cc.name
       ORDER BY s.date DESC, s.cod DESC
       LIMIT ${limit} OFFSET ${offset}
     `;
@@ -214,6 +223,7 @@ export const salesReportService = {
         total: round2(r.total),
         itemsCount: toNumber(r.itemsCount),
         paymentMethod: r.paymentMethodName,
+        costCenter: r.costCenterName,
       })),
       totals: {
         salesCount: toNumber(totalsRow?.salesCount),
@@ -233,7 +243,7 @@ export const salesReportService = {
 
   async getSalesByPeriod(companyId, filters, periodView = 'monthly') {
     const { start, end } = resolveDateRange(filters);
-    const whereSql = buildSaleFilters(companyId, { start, end, statusId: filters.statusId, clientId: filters.clientId });
+    const whereSql = buildSaleFilters(companyId, { start, end, ...filters });
 
     const truncConfig = {
       daily: { unit: 'day', format: 'DD/MM/YYYY' },
@@ -283,6 +293,11 @@ export const salesReportService = {
     const limit = Math.min(Number(query.limit) || 20, 10000);
     const periodView = query.periodView || 'monthly';
 
+    const costCenterScope = await resolveCostCenterScope(
+      prisma,
+      companyId,
+      query.costCenterScope,
+    );
     const filters = {
       startDate: query.startDate,
       endDate: query.endDate,
@@ -290,6 +305,7 @@ export const salesReportService = {
       year: query.year,
       statusId: query.statusId || undefined,
       clientId: query.clientId || undefined,
+      costCenterScope,
     };
 
     const { start, end } = resolveDateRange(filters);

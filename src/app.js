@@ -5,6 +5,7 @@ import compression from 'compression'
 import rateLimit from 'express-rate-limit'
 import morgan from 'morgan'
 import logger from './utils/logger.js'
+import { API_RATE_LIMIT_WINDOW_MS, resolveApiRateLimitMax } from './config/apiRateLimit.js'
 
 import authRoutes from './modules/auth/auth.routes.js'
 import companyRoutes from './modules/company/company.routes.js'
@@ -23,6 +24,7 @@ import productInventory from './modules/products/productInventory/pdInventory.ro
 import productTax from './modules/products/productTax/pdTax.routes.js'
 import stockMovement from './modules/products/stockMovement/stockMovement.routes.js'
 import financialRoutes from './modules/financial/financial.routes.js'
+import costCenterRoutes from './modules/costCenters/costCenter.routes.js'
 import reportRoutes from './modules/reports/report.routes.js'
 import userRoutes from './modules/users/user.routes.js'
 import dashboardRoutes from './modules/dashboard/dashboard.routes.js'
@@ -96,9 +98,19 @@ app.use(express.json({ limit: '1mb' }))
 
 // Rate Limiting (ignora preflight OPTIONS)
 const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 100,
-    message: 'Muitas requisições deste IP, tente novamente após 15 minutos',
+    windowMs: API_RATE_LIMIT_WINDOW_MS,
+    max: resolveApiRateLimitMax(),
+    handler: (req, res, _next, options) => {
+        logger.warn({
+            msg: 'Limite de requisições da API atingido',
+            ip: req.ip,
+            path: req.originalUrl,
+            limit: options.limit,
+        })
+        return res.status(options.statusCode).json({
+            message: 'Muitas requisições em pouco tempo. Aguarde um instante e tente novamente.',
+        })
+    },
     skip: (req) => req.method === 'OPTIONS',
 })
 app.use('/api/', limiter)
@@ -138,6 +150,7 @@ app.use('/api/products/products-inventory', productInventory)
 app.use('/api/products/product-tax', productTax)
 app.use('/api/products/stock-movement', stockMovement)
 app.use('/api/financial', financialRoutes)
+app.use('/api/cost-centers', costCenterRoutes)
 app.use('/api/reports', reportRoutes)
 app.use('/api/users', userRoutes)
 app.use('/api/nfe', nfeRoutes)

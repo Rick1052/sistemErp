@@ -3,6 +3,10 @@ import { AppError } from '../../utils/AppError.js';
 import { createWithSequence } from '../../utils/createWithSequence.js';
 import { parseDateInput } from '../../utils/date.js';
 import { clientCreditService, round2 } from '../clientCredit/clientCredit.service.js';
+import {
+  assertCostCenterBelongsToCompany,
+  resolveCostCenterScope,
+} from '../costCenters/costCenter.service.js';
 
 /** Meio centavo: tolerância nas comparações de valores monetários */
 const EPSILON = 0.005;
@@ -10,13 +14,66 @@ const EPSILON = 0.005;
 const formatBRL = (value) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0);
 
+const IMMUTABLE_FIELDS = new Set([
+  'id', 'cod', 'companyId', 'createdAt', 'updatedAt',
+  // Relações aninhadas nunca são aceitas do payload HTTP. Os respectivos IDs
+  // são validados separadamente junto com o companyId autenticado.
+  'company', 'bankAccount', 'paymentMethod', 'category', 'costCenter', 'sale',
+  'client', 'supplier', 'chequeCustomer', 'transactions', 'payments',
+  'creditMovements', 'asaasCharge',
+]);
+
+function sanitizeRecordData(data) {
+  return Object.fromEntries(Object.entries(data).filter(([key]) => !IMMUTABLE_FIELDS.has(key)));
+}
+
+async function assertReference(client, model, companyId, id, label) {
+  if (!id) return null;
+  const found = await client[model].findFirst({ where: { id, companyId }, select: { id: true } });
+  if (!found) throw new AppError(`${label} não pertence à empresa atual`, 400);
+  return found;
+}
+
+async function assertFinancialReferences(client, companyId, data, { requireActiveCostCenter = true } = {}) {
+  await Promise.all([
+    assertReference(client, 'bankAccount', companyId, data.bankAccountId, 'Conta bancária'),
+    assertReference(client, 'paymentMethod', companyId, data.paymentMethodId, 'Forma de pagamento'),
+    assertReference(client, 'financialCategory', companyId, data.categoryId, 'Categoria financeira'),
+    assertReference(client, 'client', companyId, data.clientId, 'Cliente'),
+    assertReference(client, 'supplier', companyId, data.supplierId, 'Fornecedor'),
+    assertReference(client, 'sale', companyId, data.saleId, 'Venda'),
+    assertReference(client, 'client', companyId, data.chequeCustomerId, 'Cliente do cheque'),
+    assertCostCenterBelongsToCompany(client, companyId, data.costCenterId, {
+      requireActive: requireActiveCostCenter,
+    }),
+  ]);
+}
+
+export async function applyDefaultCostCenter(client, companyId, data) {
+  const hasExplicitCostCenter = Object.prototype.hasOwnProperty.call(data, 'costCenterId')
+    && data.costCenterId !== undefined;
+  if (hasExplicitCostCenter || !data.categoryId) return { ...data };
+
+  const category = await client.financialCategory.findFirst({
+    where: { id: data.categoryId, companyId },
+    select: { defaultCostCenterId: true },
+  });
+  if (!category) throw new AppError('Categoria financeira não pertence à empresa atual', 400);
+
+  return {
+    ...data,
+    costCenterId: category.defaultCostCenterId || null,
+  };
+}
+
 export const financialRecordService = {
   async list(companyId, filters = {}) {
-    const { type, status, startDate, endDate, categoryId, bankAccountId, search } = filters;
+    const { type, status, startDate, endDate, categoryId, bankAccountId, search, costCenterScope } = filters;
     const page = Math.max(1, Number(filters.page ?? 1) || 1);
     const limit = Math.max(1, Math.min(100, Number(filters.limit ?? 25) || 25));
     const skip = (page - 1) * limit;
     const where = { companyId };
+    Object.assign(where, await resolveCostCenterScope(prisma, companyId, costCenterScope));
 
     if (type) where.type = type;
     if (status) {
@@ -76,6 +133,7 @@ export const financialRecordService = {
           bankAccount: { select: { id: true, name: true } },
           paymentMethod: { select: { id: true, name: true } },
           category: { select: { id: true, name: true } },
+          costCenter: { select: { id: true, name: true, status: true } },
           sale: { select: { cod: true } },
           client: { select: { id: true, name: true, document: true } },
           supplier: { select: { id: true, name: true, document: true } },
@@ -96,6 +154,7 @@ export const financialRecordService = {
         bankAccount: true,
         paymentMethod: true,
         category: true,
+        costCenter: true,
         transactions: true,
         payments: {
           include: {
@@ -114,14 +173,21 @@ export const financialRecordService = {
 
   async create(companyId, data, tx = null) {
     try {
-      if (data.chequeHistory) {
+      const client = tx || prisma;
+      const payload = await applyDefaultCostCenter(
+        client,
+        companyId,
+        sanitizeRecordData(data),
+      );
+      if (payload.chequeHistory) {
         const timestamp = new Date().toLocaleString('pt-BR', { 
           day: '2-digit', month: '2-digit', year: 'numeric', 
           hour: '2-digit', minute: '2-digit' 
         });
-        data.chequeHistory = `[${timestamp}] - ${data.chequeHistory}`;
+        payload.chequeHistory = `[${timestamp}] - ${payload.chequeHistory}`;
       }
-      return await createWithSequence('financialRecord', companyId, data, tx);
+      await assertFinancialReferences(client, companyId, payload);
+      return await createWithSequence('financialRecord', companyId, payload, tx);
     } catch (error) {
       console.error('ERRO AO CRIAR LANÇAMENTO FINANCEIRO:', error);
       throw error;
@@ -140,6 +206,7 @@ export const financialRecordService = {
         description, 
         paymentMethodId, 
         categoryId, 
+        costCenterId,
         saleId, 
         purchaseId, 
         date,
@@ -156,7 +223,7 @@ export const financialRecordService = {
       if (isNaN(pDate.getTime())) throw new AppError('Data inválida', 400);
 
       // 1. Criar o Título como PAID
-      const record = await this.create(companyId, {
+      const recordData = {
         type,
         description,
         amount,
@@ -175,10 +242,14 @@ export const financialRecordService = {
         chequeDueDate,
         chequeCustomerId,
         chequeHistory
-      }, tx);
+      };
+      if (Object.prototype.hasOwnProperty.call(data, 'costCenterId')) {
+        recordData.costCenterId = costCenterId;
+      }
+      const record = await this.create(companyId, recordData, tx);
 
       // 2. Atualizar Saldo da Conta
-      const bankAccount = await tx.bankAccount.findUnique({ where: { id: bankAccountId } });
+      const bankAccount = await tx.bankAccount.findFirst({ where: { id: bankAccountId, companyId } });
       if (!bankAccount) throw new AppError('Conta bancária não encontrada', 404);
 
       const isRevenue = type === 'RECEIVABLE';
@@ -225,29 +296,41 @@ export const financialRecordService = {
 
   async update(companyId, id, data) {
     const record = await this.getById(companyId, id);
+    let payload = sanitizeRecordData(data);
     if (record.status === 'PAID' || record.status === 'PARTIALLY_PAID') {
       // Se a única chave sendo atualizada for o chequeHistory, liberar.
-      const keys = Object.keys(data).filter(k => data[k] !== undefined);
+      const keys = Object.keys(payload).filter(k => payload[k] !== undefined);
       const isOnlyHistory = keys.length === 1 && keys[0] === 'chequeHistory';
       if (!isOnlyHistory) {
         throw new AppError('Não é possível editar informações principais de um título já baixado. Estorne os pagamentos primeiro.', 400);
       }
     }
 
-    if (data.chequeHistory) {
+    if (payload.chequeHistory) {
       const timestamp = new Date().toLocaleString('pt-BR', { 
         day: '2-digit', month: '2-digit', year: 'numeric', 
         hour: '2-digit', minute: '2-digit' 
       });
-      const newEntry = `[${timestamp}] - ${data.chequeHistory}`;
-      data.chequeHistory = record.chequeHistory 
+      const newEntry = `[${timestamp}] - ${payload.chequeHistory}`;
+      payload.chequeHistory = record.chequeHistory
         ? `${newEntry}\n${record.chequeHistory}` 
         : newEntry;
     }
 
+    const categoryChanged = payload.categoryId !== undefined && payload.categoryId !== record.categoryId;
+    const hasExplicitCostCenter = Object.prototype.hasOwnProperty.call(payload, 'costCenterId')
+      && payload.costCenterId !== undefined;
+    if (categoryChanged && !hasExplicitCostCenter) {
+      payload = await applyDefaultCostCenter(prisma, companyId, payload);
+    }
+    const costCenterChanged = payload.costCenterId !== undefined && payload.costCenterId !== record.costCenterId;
+    await assertFinancialReferences(prisma, companyId, payload, {
+      requireActiveCostCenter: costCenterChanged,
+    });
+
     return prisma.financialRecord.update({
       where: { id },
-      data,
+      data: payload,
     });
   },
 
@@ -284,6 +367,13 @@ export const financialRecordService = {
 
       if (!bankAccountId) throw new AppError('Conta bancária é obrigatória', 400);
       if (!paymentMethodId) throw new AppError('Forma de pagamento é obrigatória', 400);
+
+      const [validBankAccount, validPaymentMethod] = await Promise.all([
+        tx.bankAccount.findFirst({ where: { id: bankAccountId, companyId } }),
+        tx.paymentMethod.findFirst({ where: { id: paymentMethodId, companyId } }),
+      ]);
+      if (!validBankAccount) throw new AppError('Conta bancária não pertence à empresa atual', 400);
+      if (!validPaymentMethod) throw new AppError('Forma de pagamento não pertence à empresa atual', 400);
 
       const totalAmount = Number(record.amount);
       const alreadyPaid = Number(record.paidAmount ?? 0);
@@ -334,9 +424,7 @@ export const financialRecordService = {
       });
 
       // 2. Buscar/Atualizar a Conta Bancária
-      const bankAccount = await tx.bankAccount.findUnique({
-        where: { id: bankAccountId },
-      });
+      const bankAccount = validBankAccount;
       if (!bankAccount) throw new AppError('Conta bancária não encontrada', 404);
 
       const balanceChange = isRevenue ? amountToUse : -amountToUse;
@@ -487,8 +575,8 @@ export const financialRecordService = {
 
         // 3. Devolver o saldo bancário: entrou o valor da baixa + o excedente que
         //    virou crédito, então o estorno tira os dois.
-        const bankAccount = await tx.bankAccount.findUnique({
-          where: { id: payment.bankAccountId },
+        const bankAccount = await tx.bankAccount.findFirst({
+          where: { id: payment.bankAccountId, companyId },
         });
         if (bankAccount) {
           const valor = round2(Number(payment.amount) + creditGerado);

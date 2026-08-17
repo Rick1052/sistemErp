@@ -19,7 +19,18 @@ function assertCanDelete(role) {
 export const budgetController = {
   list: asyncHandler(async (req, res) => {
     const { companyId } = req;
-    const { page, limit, startDate, endDate, search, status, clientId, sellerId, cod } = req.query;
+    const {
+      page,
+      limit,
+      startDate,
+      endDate,
+      search,
+      status,
+      clientId,
+      sellerId,
+      cod,
+      costCenterScope,
+    } = req.query;
     const result = await budgetService.list(companyId, {
       page: parseInt(page) || 1,
       limit: parseInt(limit) || 25,
@@ -30,6 +41,7 @@ export const budgetController = {
       clientId,
       sellerId,
       cod,
+      costCenterScope,
     });
     return res.json(result);
   }),

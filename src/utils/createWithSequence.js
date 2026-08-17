@@ -21,6 +21,7 @@ const sequenceMap = {
     bankAccount: 'accountSeq',
     paymentMethod: 'paymentMethodSeq',
     financialCategory: 'financialCategorySeq',
+    costCenter: 'costCenterSeq',
     financialRecord: 'financialRecordSeq',
     clientCredit: 'clientCreditSeq',
 };

@@ -10,12 +10,6 @@ export async function requireCompany(req, res, next) {
   }
 
   try {
-    // Fast-path: JWT já contém empresa e papel (emitidos no login)
-    if (req.role && req.user?.id) {
-      req.userRole = req.role;
-      return next();
-    }
-
     const cachedRole = getCachedCompanyAccess(req.user.id, req.companyId);
     if (cachedRole) {
       req.userRole = cachedRole;

@@ -11,6 +11,11 @@ const robustUUID = (isRequired = false) => z.preprocess((val) => {
   return val;
 }, isRequired ? z.string().uuid() : z.string().uuid().optional());
 
+const nullableUUID = z.preprocess((val) => {
+  if (val === '' || val === undefined) return undefined;
+  return val;
+}, z.string().uuid().nullable().optional());
+
 const optionalString = z.preprocess((val) => {
   if (val === '' || val === null || val === undefined) return null;
   return val;
@@ -27,6 +32,7 @@ export const createBudgetSchema = z.object({
   notes: optionalString,
   paymentTerms: optionalString,
   paymentMethodId: robustUUID(false),
+  costCenterId: nullableUUID,
   leadOrigin: optionalString,
   competitor: optionalString,
   lossReason: optionalString,

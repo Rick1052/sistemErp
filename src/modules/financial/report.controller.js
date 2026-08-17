@@ -4,7 +4,7 @@ import { AppError } from '../../utils/AppError.js';
 
 export const reportController = {
   getDRE: asyncHandler(async (req, res) => {
-    const { startDate, endDate, year, month, groupId, subgroupId } = req.query;
+    const { startDate, endDate, year, month, groupId, subgroupId, costCenterScope } = req.query;
 
     if (!startDate && !endDate && !year) {
       throw new AppError('Informe o ano ou o intervalo de datas (startDate/endDate).', 400);
@@ -17,6 +17,7 @@ export const reportController = {
       month,
       groupId: groupId || undefined,
       subgroupId: subgroupId || undefined,
+      costCenterScope: costCenterScope || undefined,
     });
     res.json(dreReport);
   }),

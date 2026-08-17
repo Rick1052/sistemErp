@@ -1,6 +1,7 @@
 import prisma from '../../database/prisma.js';
 import bcrypt from 'bcrypt';
 import { AppError } from '../../utils/AppError.js';
+import { invalidateCompanyAccess } from '../../utils/companyAccessCache.js';
 
 export const userService = {
     async listByCompany(companyId) {
@@ -76,7 +77,7 @@ export const userService = {
         // Não permitir remover a si mesmo (previve lock out accidental)
         // Isso deve ser validado no controller se necessário, ou aqui
 
-        return prisma.userCompany.delete({
+        const removed = await prisma.userCompany.delete({
             where: {
                 userId_companyId: {
                     userId,
@@ -84,6 +85,8 @@ export const userService = {
                 }
             }
         });
+        invalidateCompanyAccess(userId, companyId);
+        return removed;
     },
 
     async updateMember(companyId, userId, { name, email, role, password }) {
@@ -111,6 +114,7 @@ export const userService = {
                 },
                 data: { role }
             });
+            invalidateCompanyAccess(userId, companyId);
         }
 
         return prisma.user.findUnique({

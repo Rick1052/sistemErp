@@ -1,5 +1,6 @@
 import prisma from '../../database/prisma.js';
 import { Prisma } from '@prisma/client';
+import { resolveCostCenterScope } from '../costCenters/costCenter.service.js';
 
 const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
@@ -127,7 +128,17 @@ function shouldIncludeSalesRevenue(categories, query) {
   return group.type === 'REVENUE' && classifyExpenseGroup(group.name) !== 'DEDUCOES';
 }
 
-async function fetchSalesRevenue(companyId, start, end) {
+function rawCostCenterFilter(alias, scope) {
+  if (!Object.hasOwn(scope, 'costCenterId')) return Prisma.empty;
+  if (scope.costCenterId === null) return Prisma.sql`AND ${Prisma.raw(alias)}."costCenterId" IS NULL`;
+  if (typeof scope.costCenterId === 'object') {
+    return Prisma.sql`AND ${Prisma.raw(alias)}."costCenterId" IS NOT NULL`;
+  }
+  return Prisma.sql`AND ${Prisma.raw(alias)}."costCenterId" = ${scope.costCenterId}`;
+}
+
+async function fetchSalesRevenue(companyId, start, end, costCenterScope = {}) {
+  const costCenterSql = rawCostCenterFilter('s', costCenterScope);
   const salesByCategory = await prisma.$queryRaw`
     SELECT
       TO_CHAR(DATE_TRUNC('month', s.date), 'YYYY-MM') AS month,
@@ -143,6 +154,7 @@ async function fetchSalesRevenue(companyId, start, end) {
       AND s.date >= ${start}
       AND s.date <= ${end}
       AND UPPER(ss.name) NOT LIKE '%CANCELAD%'
+      ${costCenterSql}
     GROUP BY DATE_TRUNC('month', s.date), pc.id, pc.name
   `;
 
@@ -156,6 +168,7 @@ async function fetchSalesRevenue(companyId, start, end) {
       AND s.date >= ${start}
       AND s.date <= ${end}
       AND UPPER(ss.name) NOT LIKE '%CANCELAD%'
+      ${costCenterSql}
     GROUP BY DATE_TRUNC('month', s.date)
   `;
 
@@ -212,10 +225,24 @@ export const dreComparativeService = {
     const { start, end } = resolvePeriod(query);
     const months = listMonths(start, end);
 
-    const categories = await prisma.financialCategory.findMany({
-      where: { companyId, status: 'ACTIVE' },
-      orderBy: { cod: 'asc' },
-    });
+    const costCenterScope = await resolveCostCenterScope(
+      prisma,
+      companyId,
+      query.costCenterScope,
+    );
+    const financialCostCenterSql = rawCostCenterFilter('fr', costCenterScope);
+
+    const [categories, costCenters] = await Promise.all([
+      prisma.financialCategory.findMany({
+        where: { companyId, status: 'ACTIVE' },
+        orderBy: { cod: 'asc' },
+      }),
+      prisma.costCenter.findMany({
+        where: { companyId },
+        select: { id: true, cod: true, name: true, status: true },
+        orderBy: { name: 'asc' },
+      }),
+    ]);
 
     const { map: categoryMap, getMeta } = buildCategoryPaths(categories);
     const revenueGroup = resolveRevenueGroup(categories);
@@ -239,10 +266,11 @@ export const dreComparativeService = {
           AND fr."paymentDate" <= ${end}
           AND fr."categoryId" IS NOT NULL
           AND fc.type = 'EXPENSE'
+          ${financialCostCenterSql}
         GROUP BY fc.id, fc.name, fc.type, fc."parentId", DATE_TRUNC('month', fr."paymentDate"), fr.type
       `,
       shouldIncludeSalesRevenue(categories, query)
-        ? fetchSalesRevenue(companyId, start, end)
+        ? fetchSalesRevenue(companyId, start, end, costCenterScope)
         : Promise.resolve({ salesByCategory: [], salesTotals: [] }),
     ]);
 
@@ -264,6 +292,7 @@ export const dreComparativeService = {
         AND fr."paymentDate" <= ${end}
         AND fr."categoryId" IS NOT NULL
         AND fc.type = 'REVENUE'
+        ${financialCostCenterSql}
       GROUP BY fc.id, fc.name, fc.type, fc."parentId", DATE_TRUNC('month', fr."paymentDate"), fr.type
     `;
 
@@ -515,6 +544,7 @@ export const dreComparativeService = {
           groupId: c.parentId,
           groupName: categoryMap[c.parentId]?.name,
         })),
+      costCenters,
     };
 
     return {
@@ -556,9 +586,12 @@ export const dreComparativeService = {
     const search = (query.search || '').trim();
     const offset = (page - 1) * limit;
 
-    const categories = await prisma.financialCategory.findMany({
-      where: { companyId, status: 'ACTIVE' },
-    });
+    const [categories, costCenterScope] = await Promise.all([
+      prisma.financialCategory.findMany({
+        where: { companyId, status: 'ACTIVE' },
+      }),
+      resolveCostCenterScope(prisma, companyId, query.costCenterScope),
+    ]);
     const { getMeta } = buildCategoryPaths(categories);
     const revenueGroup = resolveRevenueGroup(categories);
 
@@ -576,6 +609,7 @@ export const dreComparativeService = {
       search,
       offset,
       limit,
+      costCenterScope,
     });
 
     return {
@@ -740,6 +774,7 @@ async function fetchDrillItems({
   search,
   offset,
   limit,
+  costCenterScope,
 }) {
   if (scope.kind === 'sales' || (scope.kind === 'indicator' && indicatorIncludesSales(scope.indicatorId))) {
     const salesItems = await fetchSalesDrillItems({
@@ -749,6 +784,7 @@ async function fetchDrillItems({
       scope,
       revenueGroup,
       search,
+      costCenterScope,
     });
     const financialItems =
       scope.kind === 'indicator'
@@ -761,6 +797,7 @@ async function fetchDrillItems({
             getMeta,
             search,
             fetchAll: true,
+            costCenterScope,
           })
         : [];
 
@@ -792,6 +829,7 @@ async function fetchDrillItems({
     search,
     offset,
     limit,
+    costCenterScope,
   });
 }
 
@@ -806,12 +844,14 @@ async function fetchFinancialDrillItems({
   offset = 0,
   limit = 25,
   fetchAll = false,
+  costCenterScope = {},
 }) {
   const where = {
     companyId,
     status: 'PAID',
     paymentDate: { gte: start, lte: end },
     categoryId: categoryIds?.length ? { in: categoryIds } : { not: null },
+    ...costCenterScope,
   };
 
   if (search) {
@@ -836,6 +876,7 @@ async function fetchFinancialDrillItems({
         client: true,
         supplier: true,
         sale: { select: { cod: true } },
+        costCenter: { select: { name: true } },
       },
       orderBy: { paymentDate: 'desc' },
       ...(fetchAll ? {} : { skip: offset, take: limit }),
@@ -864,6 +905,7 @@ async function fetchFinancialDrillItems({
       AND fr."paymentDate" >= ${start}
       AND fr."paymentDate" <= ${end}
       ${categoryIds?.length ? Prisma.sql`AND fr."categoryId" IN (${Prisma.join(categoryIds)})` : Prisma.empty}
+      ${rawCostCenterFilter('fr', costCenterScope)}
   `;
 
   return {
@@ -889,15 +931,24 @@ function mapFinancialRecord(fr, getMeta) {
     grupo: meta.grupo,
     subgrupo: meta.subgrupo,
     conta: meta.conta,
-    costCenter: null,
+    costCenter: fr.costCenter?.name || null,
     description: fr.description,
     user: null,
     amount: round2(amount),
   };
 }
 
-async function fetchSalesDrillItems({ companyId, start, end, scope, revenueGroup, search }) {
+async function fetchSalesDrillItems({
+  companyId,
+  start,
+  end,
+  scope,
+  revenueGroup,
+  search,
+  costCenterScope = {},
+}) {
   const saleCategoryId = scope.saleCategoryId;
+  const costCenterSql = rawCostCenterFilter('s', costCenterScope);
   const searchSql = search
     ? Prisma.sql`AND (
         c.name ILIKE ${`%${search}%`}
@@ -913,15 +964,18 @@ async function fetchSalesDrillItems({ companyId, start, end, scope, revenueGroup
         s.cod,
         s.date,
         c.name AS "clientName",
+        cc.name AS "costCenterName",
         (s.total - COALESCE((SELECT SUM(si.total) FROM "SaleItem" si WHERE si."saleId" = s.id), 0))::float AS amount
       FROM "Sale" s
       INNER JOIN "SaleStatus" ss ON ss.id = s."statusId"
       INNER JOIN "Client" c ON c.id = s."clientId"
+      LEFT JOIN "CostCenter" cc ON cc.id = s."costCenterId" AND cc."companyId" = s."companyId"
       WHERE s."companyId" = ${companyId}
         AND s.date >= ${start}
         AND s.date <= ${end}
         AND UPPER(ss.name) NOT LIKE '%CANCELAD%'
         AND ABS(s.total - COALESCE((SELECT SUM(si.total) FROM "SaleItem" si WHERE si."saleId" = s.id), 0)) > 0.009
+        ${costCenterSql}
         ${searchSql}
       ORDER BY s.date DESC
     `;
@@ -937,7 +991,7 @@ async function fetchSalesDrillItems({ companyId, start, end, scope, revenueGroup
       grupo: revenueGroup.name,
       subgrupo: 'Frete, descontos e ajustes',
       conta: null,
-      costCenter: null,
+      costCenter: s.costCenterName || null,
       description: 'Ajuste de frete, desconto ou arredondamento',
       user: null,
       amount: round2(s.amount),
@@ -960,17 +1014,20 @@ async function fetchSalesDrillItems({ companyId, start, end, scope, revenueGroup
       si.quantity,
       p.description AS product,
       COALESCE(pc.name, 'Vendas') AS "categoryName",
-      c.name AS "clientName"
+      c.name AS "clientName",
+      cc.name AS "costCenterName"
     FROM "SaleItem" si
     INNER JOIN "Sale" s ON s.id = si."saleId"
     INNER JOIN "SaleStatus" ss ON ss.id = s."statusId"
     INNER JOIN "Product" p ON p.id = si."productId"
     INNER JOIN "Client" c ON c.id = s."clientId"
     LEFT JOIN "Category" pc ON pc.id = p."categoryId"
+    LEFT JOIN "CostCenter" cc ON cc.id = s."costCenterId" AND cc."companyId" = s."companyId"
     WHERE s."companyId" = ${companyId}
       AND s.date >= ${start}
       AND s.date <= ${end}
       AND UPPER(ss.name) NOT LIKE '%CANCELAD%'
+      ${costCenterSql}
       ${categoryFilter}
       ${searchSql}
     ORDER BY s.date DESC
@@ -987,7 +1044,7 @@ async function fetchSalesDrillItems({ companyId, start, end, scope, revenueGroup
     grupo: revenueGroup.name,
     subgrupo: row.categoryName,
     conta: row.product,
-    costCenter: null,
+    costCenter: row.costCenterName || null,
     description: `Venda ${row.quantity} un. — ${row.product}`,
     user: null,
     amount: round2(row.amount),

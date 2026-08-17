@@ -14,7 +14,7 @@ export const financeIntegrationService = {
    *
    * `saleTotal` aqui é o valor FINANCIADO (total do pedido menos o crédito em conta usado).
    */
-  planReceivablesFromSale({ clientId, saleDate, salePaymentMethodId, saleTotal }, installmentsData = [], paymentMethodsById) {
+  planReceivablesFromSale({ clientId, saleDate, salePaymentMethodId, saleTotal, costCenterId }, installmentsData = [], paymentMethodsById) {
     // Pedido totalmente quitado com crédito em conta: nada a lançar
     if (Number(saleTotal) <= 0.005) return { pending: [], immediate: [] };
 
@@ -68,6 +68,7 @@ export const financeIntegrationService = {
         paymentMethodId: inst.paymentMethodId,
         clientId: clientId || null,
         bankAccountId,
+        costCenterId: costCenterId || null,
         chequeNumber: inst.chequeNumber || null,
         chequeOwner: inst.chequeOwner || null,
         chequeDueDate: inst.chequeDueDate ? parseDateInput(inst.chequeDueDate) : null,
@@ -142,8 +143,8 @@ export const financeIntegrationService = {
         continue;
       }
 
-      const paymentMethod = await client.paymentMethod.findUnique({
-        where: { id: inst.paymentMethodId }
+      const paymentMethod = await client.paymentMethod.findFirst({
+        where: { id: inst.paymentMethodId, companyId }
       });
 
       if (!paymentMethod) {
@@ -185,6 +186,7 @@ export const financeIntegrationService = {
         saleId: sale.id,
         clientId: sale.clientId || null,
         bankAccountId,
+        costCenterId: sale.costCenterId || null,
         chequeNumber: inst.chequeNumber || null,
         chequeOwner: inst.chequeOwner || null,
         chequeDueDate: inst.chequeDueDate ? parseDateInput(inst.chequeDueDate) : null,
@@ -226,6 +228,7 @@ export const financeIntegrationService = {
       dueDate: new Date(),
       status: 'PENDING',
       purchaseId: purchase.id,
+      costCenterId: purchase.costCenterId || null,
     };
 
     return financialRecordService.create(companyId, data);

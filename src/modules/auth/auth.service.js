@@ -1,10 +1,9 @@
-import prisma from '../../database/prisma.js'
-import bcrypt from 'bcrypt'
-import jwt from 'jsonwebtoken'
-import { AppError } from '../../utils/AppError.js'; // Importando nossa nova classe
+import prisma from '../../database/prisma.js';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import { AppError } from '../../utils/AppError.js';
 import { isSuperAdminEmail } from '../../utils/superadmin.js';
 
-// ===== TOKEN HELPERS =====
 function generateAccessToken(payload) {
   return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
 }
@@ -13,152 +12,131 @@ function generateRefreshToken(payload) {
   return jwt.sign(payload, process.env.JWT_REFRESH_SECRET, { expiresIn: '30d' });
 }
 
-// ===== LOGIN =====
+async function createTokensForUser(user, companyId = null, role = null, setupRequired = false) {
+  const accessToken = generateAccessToken({
+    id: user.id,
+    email: user.email,
+    companyId,
+    role,
+    setupRequired,
+  });
+
+  // O tenant faz parte também do refresh token. A renovação nunca escolhe
+  // silenciosamente outra empresa do mesmo usuário.
+  const refreshToken = generateRefreshToken({ id: user.id, companyId });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.refreshToken.deleteMany({ where: { userId: user.id } });
+    await tx.refreshToken.create({ data: { token: refreshToken, userId: user.id } });
+  });
+
+  return {
+    accessToken,
+    refreshToken,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      companyId,
+      role,
+      isSuperAdmin: isSuperAdminEmail(user.email),
+    },
+  };
+}
+
+async function requireMembership(userId, companyId) {
+  const relation = await prisma.userCompany.findUnique({
+    where: { userId_companyId: { userId, companyId } },
+  });
+  if (!relation) throw new AppError('Empresa inválida ou acesso não autorizado', 403);
+  return relation;
+}
+
 export async function login({ email, password, companyId }) {
   const user = await prisma.user.findUnique({ where: { email } });
-
-  // 401: Não dizemos se o erro é no e-mail ou na senha por segurança
-  if (!user) {
-    throw new AppError('E-mail ou senha inválidos', 401);
-  }
-
-  const passwordMatch = await bcrypt.compare(password, user.password);
-  if (!passwordMatch) {
+  if (!user || !(await bcrypt.compare(password, user.password))) {
     throw new AppError('E-mail ou senha inválidos', 401);
   }
 
   const userCompanies = await prisma.userCompany.findMany({
     where: { userId: user.id },
-    include: { company: true }
+    include: { company: true },
   });
 
-  const createTokens = async (companyId = null, role = null, setupRequired = false) => {
-    const accessToken = generateAccessToken({
-      id: user.id,
-      email: user.email,
-      companyId,
-      role,
-      setupRequired
-    });
-
-    const refreshToken = generateRefreshToken({ id: user.id });
-
-    // 1. LIMPEZA: Remove qualquer token anterior deste usuário.
-    // O deleteMany não falha se não encontrar nada.
-    await prisma.refreshToken.deleteMany({
-      where: { userId: user.id }
-    });
-
-    // 2. CRIAÇÃO: Agora o campo 'token' nunca será duplicado para o mesmo usuário.
-    await prisma.refreshToken.create({
-      data: {
-        token: refreshToken,
-        userId: user.id
-      }
-    });
-
-    // 3. RETORNO: Note que adicionei o objeto 'user' para o Frontend salvar
-    return {
-      accessToken,
-      refreshToken,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        companyId: companyId,
-        role: role,
-        isSuperAdmin: isSuperAdminEmail(user.email)
-      }
-    };
-  };
-
-  // Se a requisição já solicitou uma company específica (login secundário de múltiplas empresas)
   if (companyId) {
-    const relation = userCompanies.find(uc => uc.companyId === companyId);
-    if (!relation) {
-      throw new AppError('Empresa inválida ou acesso não autorizado', 403);
-    }
-    return await createTokens(relation.companyId, relation.role);
+    const relation = userCompanies.find((uc) => uc.companyId === companyId);
+    if (!relation) throw new AppError('Empresa inválida ou acesso não autorizado', 403);
+    return createTokensForUser(user, relation.companyId, relation.role);
   }
 
-  // Caso 1: Usuário sem empresa
   if (userCompanies.length === 0) {
-    const tokens = await createTokens(null, null, true);
+    const tokens = await createTokensForUser(user, null, null, true);
     return { ...tokens, requiresCompanySetup: true };
   }
 
-  // Caso 2: Usuário com apenas uma empresa (Login Direto)
   if (userCompanies.length === 1) {
     const relation = userCompanies[0];
-    return await createTokens(relation.companyId, relation.role);
+    return createTokensForUser(user, relation.companyId, relation.role);
   }
 
-  // Caso 3: Múltiplas empresas (Frontend deve pedir para selecionar)
   return {
     selectCompany: true,
-    companies: userCompanies.map(uc => ({
-      id: uc.company.id,
-      name: uc.company.name
-    }))
+    companies: userCompanies.map((uc) => ({ id: uc.company.id, name: uc.company.name })),
   };
 }
 
-// ===== REGISTER =====
 export async function register({ name, email, password }) {
   const existingUser = await prisma.user.findUnique({ where: { email } });
-
-  // 400: Bad Request (O dado enviado está em conflito/inválido)
-  if (existingUser) {
-    throw new AppError('Este e-mail já está sendo utilizado', 400);
-  }
+  if (existingUser) throw new AppError('Este e-mail já está sendo utilizado', 400);
 
   const hashedPassword = await bcrypt.hash(password, 10);
-
   return prisma.user.create({
     data: { name, email, password: hashedPassword },
-    select: { id: true, name: true, email: true } // Não retorna a senha no objeto criado!
+    select: { id: true, name: true, email: true },
   });
 }
 
-// ===== REFRESH TOKEN =====
-export async function refreshUserToken(token) {
+export async function refreshUserToken(token, requestedCompanyId = null) {
   const tokenInDb = await prisma.refreshToken.findUnique({ where: { token } });
-
-  // 401: Se o refresh token sumiu ou é inválido, a sessão caiu de vez
   if (!tokenInDb) {
     throw new AppError('Sessão expirada. Por favor, faça login novamente', 401);
   }
 
+  let decoded;
   try {
-    const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
-
-    const user = await prisma.user.findUnique({ where: { id: decoded.id } });
-    if (!user) throw new AppError('Usuário não encontrado', 404);
-
-    const relation = await prisma.userCompany.findFirst({
-      where: { userId: user.id }
-    });
-
-    const newAccessToken = generateAccessToken({
-      id: user.id,
-      email: user.email,
-      companyId: relation?.companyId || null,
-      role: relation?.role || null,
-    });
-
-    const newRefreshToken = generateRefreshToken({ id: user.id });
-
-    await prisma.refreshToken.delete({ where: { token } });
-    await prisma.refreshToken.create({
-      data: {
-        token: newRefreshToken,
-        userId: user.id,
-      },
-    });
-
-    return { accessToken: newAccessToken, refreshToken: newRefreshToken };
-
-  } catch (err) {
+    decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
+  } catch {
     throw new AppError('Token inválido ou expirado', 401);
   }
+
+  const user = await prisma.user.findUnique({ where: { id: decoded.id } });
+  if (!user) throw new AppError('Usuário não encontrado', 404);
+
+  let companyId = decoded.companyId || requestedCompanyId || null;
+  let role = null;
+
+  if (!companyId) {
+    // Compatibilidade para tokens antigos: só inferimos quando não há ambiguidade.
+    const memberships = await prisma.userCompany.findMany({ where: { userId: user.id } });
+    if (memberships.length > 1) {
+      throw new AppError('Selecione novamente a empresa para renovar a sessão', 409);
+    }
+    if (memberships.length === 1) companyId = memberships[0].companyId;
+  }
+
+  if (companyId) {
+    const relation = await requireMembership(user.id, companyId);
+    role = relation.role;
+  }
+
+  const session = await createTokensForUser(user, companyId, role, !companyId);
+  return { accessToken: session.accessToken, refreshToken: session.refreshToken };
+}
+
+export async function switchCompany(userId, companyId) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new AppError('Usuário não encontrado', 404);
+
+  const relation = await requireMembership(user.id, companyId);
+  return createTokensForUser(user, companyId, relation.role);
 }

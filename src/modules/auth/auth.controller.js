@@ -1,4 +1,4 @@
-import { register, login, refreshUserToken } from './auth.service.js';
+import { register, login, refreshUserToken, switchCompany } from './auth.service.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 
 // Criar usuário
@@ -26,7 +26,12 @@ export const loginController = asyncHandler(async (req, res) => {
 
 // Refresh Token
 export const refreshController = asyncHandler(async (req, res) => {
-    const { refreshToken } = req.validatedBody;
-    const newToken = await refreshUserToken(refreshToken);
+    const { refreshToken, companyId } = req.validatedBody;
+    const newToken = await refreshUserToken(refreshToken, companyId);
     return res.json(newToken);
+});
+
+export const switchCompanyController = asyncHandler(async (req, res) => {
+    const session = await switchCompany(req.user.id, req.validatedBody.companyId);
+    return res.json(session);
 });

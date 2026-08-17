@@ -5,6 +5,10 @@ import { parseDateInput } from '../../utils/date.js';
 import { saleService } from '../sales/sale.service.js';
 import logger from '../../utils/logger.js';
 import {
+  assertCostCenterBelongsToCompany,
+  resolveCostCenterScope,
+} from '../costCenters/costCenter.service.js';
+import {
   BUDGET_HISTORY_ACTIONS,
   BUDGET_STATUS_LABELS,
   TERMINAL_STATUSES,
@@ -14,6 +18,7 @@ const budgetInclude = {
   client: { select: { id: true, name: true, document: true, email: true, phone: true, street: true, number: true, city: true, state: true, zipCode: true } },
   seller: { select: { id: true, name: true, email: true } },
   paymentMethod: { select: { id: true, name: true } },
+  costCenter: true,
   convertedSale: { select: { id: true, cod: true, total: true } },
   items: {
     include: {
@@ -102,11 +107,13 @@ export const budgetService = {
     clientId,
     sellerId,
     cod,
+    costCenterScope,
   }) {
     await expireOverdueBudgets(companyId);
 
     const skip = (page - 1) * limit;
     const where = { companyId };
+    Object.assign(where, await resolveCostCenterScope(prisma, companyId, costCenterScope));
 
     if (status) where.status = status;
     if (clientId) where.clientId = clientId;
@@ -143,6 +150,7 @@ export const budgetService = {
         include: {
           client: { select: { id: true, name: true } },
           seller: { select: { id: true, name: true } },
+          costCenter: { select: { id: true, name: true, status: true } },
           convertedSale: { select: { id: true, cod: true } },
         },
         orderBy: { cod: 'desc' },
@@ -192,6 +200,7 @@ export const budgetService = {
       notes,
       paymentTerms,
       paymentMethodId,
+      costCenterId,
       leadOrigin,
       competitor,
       lossReason,
@@ -199,6 +208,33 @@ export const budgetService = {
     } = data;
 
     const totals = calcTotals(items, discount, freight);
+
+    const itemProductIds = [...new Set(items.map((item) => item.productId))];
+    const [validClient, validPaymentMethod, , validProducts, validSeller] = await Promise.all([
+      prisma.client.findFirst({ where: { id: clientId, companyId }, select: { id: true } }),
+      paymentMethodId
+        ? prisma.paymentMethod.findFirst({ where: { id: paymentMethodId, companyId }, select: { id: true } })
+        : Promise.resolve(null),
+      assertCostCenterBelongsToCompany(prisma, companyId, costCenterId, { requireActive: true }),
+      prisma.product.findMany({
+        where: { id: { in: itemProductIds }, companyId },
+        select: { id: true },
+      }),
+      sellerId
+        ? prisma.userCompany.findUnique({
+            where: { userId_companyId: { userId: sellerId, companyId } },
+            select: { userId: true },
+          })
+        : Promise.resolve(null),
+    ]);
+    if (!validClient) throw new AppError('Cliente não pertence à empresa atual', 400);
+    if (paymentMethodId && !validPaymentMethod) {
+      throw new AppError('Forma de pagamento não pertence à empresa atual', 400);
+    }
+    if (validProducts.length !== itemProductIds.length) {
+      throw new AppError('Um ou mais produtos não pertencem à empresa atual', 400);
+    }
+    if (sellerId && !validSeller) throw new AppError('Vendedor não pertence à empresa atual', 400);
 
     try {
       const budgetId = await prisma.$transaction(async (tx) => {
@@ -218,6 +254,7 @@ export const budgetService = {
             notes,
             paymentTerms,
             paymentMethodId: paymentMethodId || null,
+            costCenterId: costCenterId || null,
             leadOrigin,
             competitor,
             lossReason,
@@ -286,6 +323,7 @@ export const budgetService = {
       notes,
       paymentTerms,
       paymentMethodId,
+      costCenterId,
       leadOrigin,
       competitor,
       lossReason,
@@ -293,6 +331,37 @@ export const budgetService = {
     } = data;
 
     const totals = calcTotals(items, discount, freight);
+
+    const nextCostCenterId = costCenterId === undefined ? existing.costCenterId : costCenterId;
+    const costCenterChanged = nextCostCenterId !== existing.costCenterId;
+    const itemProductIds = [...new Set(items.map((item) => item.productId))];
+    const [validClient, validPaymentMethod, , validProducts, validSeller] = await Promise.all([
+      prisma.client.findFirst({ where: { id: clientId, companyId }, select: { id: true } }),
+      paymentMethodId
+        ? prisma.paymentMethod.findFirst({ where: { id: paymentMethodId, companyId }, select: { id: true } })
+        : Promise.resolve(null),
+      costCenterChanged
+        ? assertCostCenterBelongsToCompany(prisma, companyId, nextCostCenterId, { requireActive: Boolean(nextCostCenterId) })
+        : Promise.resolve(null),
+      prisma.product.findMany({
+        where: { id: { in: itemProductIds }, companyId },
+        select: { id: true },
+      }),
+      sellerId
+        ? prisma.userCompany.findUnique({
+            where: { userId_companyId: { userId: sellerId, companyId } },
+            select: { userId: true },
+          })
+        : Promise.resolve(null),
+    ]);
+    if (!validClient) throw new AppError('Cliente não pertence à empresa atual', 400);
+    if (paymentMethodId && !validPaymentMethod) {
+      throw new AppError('Forma de pagamento não pertence à empresa atual', 400);
+    }
+    if (validProducts.length !== itemProductIds.length) {
+      throw new AppError('Um ou mais produtos não pertencem à empresa atual', 400);
+    }
+    if (sellerId && !validSeller) throw new AppError('Vendedor não pertence à empresa atual', 400);
 
     await prisma.$transaction(async (tx) => {
       await tx.budgetItem.deleteMany({ where: { budgetId: id, companyId } });
@@ -311,6 +380,7 @@ export const budgetService = {
           notes,
           paymentTerms,
           paymentMethodId: paymentMethodId || null,
+          costCenterId: nextCostCenterId || null,
           leadOrigin,
           competitor,
           lossReason,
@@ -416,6 +486,7 @@ export const budgetService = {
       clientId: budget.clientId,
       statusId: defaultStatus.id,
       paymentMethodId: budget.paymentMethodId || undefined,
+      costCenterId: budget.costCenterId || undefined,
       date: parseDateInput(new Date().toISOString().slice(0, 10)),
       discount: Number(budget.discount),
       freight: Number(budget.freight),

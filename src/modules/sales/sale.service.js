@@ -7,6 +7,10 @@ import { financialRecordService } from "../financial/financialRecord.service.js"
 import { clientCreditService, round2 } from "../clientCredit/clientCredit.service.js";
 import logger from '../../utils/logger.js';
 import { parseDateInput } from '../../utils/date.js';
+import {
+  assertCostCenterBelongsToCompany,
+  resolveCostCenterScope,
+} from '../costCenters/costCenter.service.js';
 
 /** Meio centavo: tolerância nas comparações de valores monetários */
 const EPSILON = 0.005;
@@ -92,9 +96,10 @@ function assertInstallmentsCoverSale(installmentsTotal, financedTotal, creditUse
 }
 
 export const saleService = {
-  async list(companyId, { page = 1, limit = 25, startDate, endDate, search, statusId }) {
+  async list(companyId, { page = 1, limit = 25, startDate, endDate, search, statusId, costCenterScope }) {
     const skip = (page - 1) * limit;
     const where = { companyId };
+    Object.assign(where, await resolveCostCenterScope(prisma, companyId, costCenterScope));
 
     if (statusId) where.statusId = String(statusId);
 
@@ -135,6 +140,7 @@ export const saleService = {
         include: {
           client: { select: { id: true, name: true, document: true } },
           status: true,
+          costCenter: { select: { id: true, name: true, status: true } },
           _count: { select: { financialRecords: true } },
         },
         orderBy: { cod: 'desc' },
@@ -162,6 +168,7 @@ export const saleService = {
         client: true,
         status: true,
         paymentMethod: { select: { id: true, name: true } },
+        costCenter: true,
         chequeCustomer: { select: { id: true, name: true, document: true } },
         items: {
           include: {
@@ -236,10 +243,11 @@ export const saleService = {
     // Inclui o check de idempotência: retry do mesmo formulário devolve o pedido já criado.
     const installmentPmIds = [...new Set([
       ...installmentsWithCheque.map((i) => i.paymentMethodId).filter(Boolean),
-      ...((installments.length === 0 && paymentMethodId) ? [paymentMethodId] : []),
+      ...(paymentMethodId ? [paymentMethodId] : []),
     ])];
+    const itemProductIds = [...new Set(items.map((item) => item.productId))];
 
-    const [existingByKey, saleStatus, warehouse, client, paymentMethodsList] = await Promise.all([
+    const [existingByKey, saleStatus, warehouse, client, paymentMethodsList, , chequeCustomer, productsList] = await Promise.all([
       clientRequestId
         ? prisma.sale.findFirst({ where: { companyId, clientRequestId }, select: { id: true } })
         : Promise.resolve(null),
@@ -249,8 +257,16 @@ export const saleService = {
         ? prisma.client.findFirst({ where: { id: saleData.clientId, companyId }, select: { id: true, name: true } })
         : Promise.resolve(null),
       installmentPmIds.length > 0
-        ? prisma.paymentMethod.findMany({ where: { id: { in: installmentPmIds } } })
+        ? prisma.paymentMethod.findMany({ where: { id: { in: installmentPmIds }, companyId } })
         : Promise.resolve([]),
+      assertCostCenterBelongsToCompany(prisma, companyId, saleData.costCenterId, { requireActive: true }),
+      chequeCustomerId
+        ? prisma.client.findFirst({ where: { id: chequeCustomerId, companyId }, select: { id: true } })
+        : Promise.resolve(null),
+      prisma.product.findMany({
+        where: { id: { in: itemProductIds }, companyId },
+        select: { id: true },
+      }),
     ]);
 
     if (existingByKey) {
@@ -259,6 +275,15 @@ export const saleService = {
     }
     if (!saleStatus) throw new AppError('Status de venda não encontrado', 404);
     if (saleData.clientId && !client) throw new AppError('Cliente não encontrado', 404);
+    if (paymentMethodsList.length !== installmentPmIds.length) {
+      throw new AppError('Uma ou mais formas de pagamento não pertencem à empresa atual', 400);
+    }
+    if (chequeCustomerId && !chequeCustomer) {
+      throw new AppError('Cliente do cheque não pertence à empresa atual', 400);
+    }
+    if (productsList.length !== itemProductIds.length) {
+      throw new AppError('Um ou mais produtos não pertencem à empresa atual', 400);
+    }
 
     const stockAction = saleStatus.stockAction;
     if (stockAction !== 'NONE' && !warehouse) throw new AppError('Depósito não encontrado.', 400);
@@ -267,7 +292,13 @@ export const saleService = {
     const paymentMethodsById = new Map(paymentMethodsList.map((pm) => [pm.id, pm]));
     const plan = stockAction === 'COMMIT'
       ? financeIntegrationService.planReceivablesFromSale(
-          { clientId: saleData.clientId, saleDate, salePaymentMethodId: paymentMethodId, saleTotal: financedTotal },
+          {
+            clientId: saleData.clientId,
+            saleDate,
+            salePaymentMethodId: paymentMethodId,
+            saleTotal: financedTotal,
+            costCenterId: saleData.costCenterId || null,
+          },
           installmentsWithCheque,
           paymentMethodsById,
         )
@@ -498,6 +529,45 @@ export const saleService = {
         });
         if (!oldSale) throw new AppError('Venda não encontrada', 404);
 
+        const nextCostCenterId = saleData.costCenterId === undefined
+          ? oldSale.costCenterId
+          : saleData.costCenterId;
+        const costCenterChanged = nextCostCenterId !== oldSale.costCenterId;
+        if (costCenterChanged && nextCostCenterId) {
+          await assertCostCenterBelongsToCompany(tx, companyId, nextCostCenterId, { requireActive: true });
+        }
+
+        const installmentMethodIds = [...new Set([
+          ...installments.map((item) => item.paymentMethodId).filter(Boolean),
+          ...(paymentMethodId ? [paymentMethodId] : []),
+        ])];
+        const itemProductIds = [...new Set(items.map((item) => item.productId))];
+        const [validClient, validPaymentMethods, validChequeCustomer, validProducts] = await Promise.all([
+          saleData.clientId
+            ? tx.client.findFirst({ where: { id: saleData.clientId, companyId }, select: { id: true } })
+            : Promise.resolve({ id: oldSale.clientId }),
+          installmentMethodIds.length
+            ? tx.paymentMethod.findMany({ where: { id: { in: installmentMethodIds }, companyId }, select: { id: true } })
+            : Promise.resolve([]),
+          chequeCustomerId
+            ? tx.client.findFirst({ where: { id: chequeCustomerId, companyId }, select: { id: true } })
+            : Promise.resolve(null),
+          tx.product.findMany({
+            where: { id: { in: itemProductIds }, companyId },
+            select: { id: true },
+          }),
+        ]);
+        if (!validClient) throw new AppError('Cliente não pertence à empresa atual', 400);
+        if (validPaymentMethods.length !== installmentMethodIds.length) {
+          throw new AppError('Uma ou mais formas de pagamento não pertencem à empresa atual', 400);
+        }
+        if (chequeCustomerId && !validChequeCustomer) {
+          throw new AppError('Cliente do cheque não pertence à empresa atual', 400);
+        }
+        if (validProducts.length !== itemProductIds.length) {
+          throw new AppError('Um ou mais produtos não pertencem à empresa atual', 400);
+        }
+
         // 1. Rollback old stock actions
         const rollbackWarehouse = oldSale.status.stockAction !== 'NONE'
           ? await saleService._resolveWarehouse(tx, companyId)
@@ -579,6 +649,13 @@ export const saleService = {
           }
         });
 
+        if (costCenterChanged) {
+          await tx.financialRecord.updateMany({
+            where: { saleId: id, companyId },
+            data: { costCenterId: nextCostCenterId || null },
+          });
+        }
+
         // 5.1 Acertar o crédito. Se o pedido trocou de cliente, o valor volta INTEIRO
         //     para o cliente anterior — crédito não migra entre clientes (Regra 11).
         if (clientChanged) {
@@ -641,7 +718,7 @@ export const saleService = {
             include: { client: { select: { id: true, name: true } } },
           });
           // Check if already has a record to avoid duplicates on edits
-          const existingRecord = await tx.financialRecord.findFirst({ where: { saleId: id } });
+          const existingRecord = await tx.financialRecord.findFirst({ where: { saleId: id, companyId } });
           if (!existingRecord) {
             // Injetar dados do cheque nas parcelas para o financeiro
             const installmentsWithCheque = installments.map((inst) => ({

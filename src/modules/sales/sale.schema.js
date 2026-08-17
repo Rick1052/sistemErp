@@ -21,10 +21,16 @@ const robustUUID = (isRequired = false) => z.preprocess((val) => {
   return val;
 }, isRequired ? z.string().uuid() : z.string().uuid().optional());
 
+const nullableUUID = z.preprocess((val) => {
+  if (val === '' || val === undefined) return undefined;
+  return val;
+}, z.string().uuid().nullable().optional());
+
 export const createSaleSchema = z.object({
   clientId: robustUUID(true),
   statusId: robustUUID(true),
   paymentMethodId: robustUUID(false),
+  costCenterId: nullableUUID,
   // Chave de idempotência: retry do mesmo formulário não duplica o pedido
   clientRequestId: z.string().uuid().optional(),
   // Sem z.coerce.date(): ele converteria "YYYY-MM-DD" em 00:00 UTC (= dia anterior no

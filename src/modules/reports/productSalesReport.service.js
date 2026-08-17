@@ -1,5 +1,6 @@
 import prisma from '../../database/prisma.js';
 import { Prisma } from '@prisma/client';
+import { resolveCostCenterScope } from '../costCenters/costCenter.service.js';
 
 function parseEndDate(endDate) {
   const d = new Date(endDate);
@@ -46,6 +47,45 @@ function round2(val) {
   return Math.round(toNumber(val) * 100) / 100;
 }
 
+function saleCostCenterSql(filters, alias = 's') {
+  const scope = filters.costCenterScope || {};
+  if (!Object.hasOwn(scope, 'costCenterId')) return Prisma.empty;
+  if (scope.costCenterId === null) {
+    return Prisma.sql`AND ${Prisma.raw(alias)}."costCenterId" IS NULL`;
+  }
+  if (typeof scope.costCenterId === 'object') {
+    return Prisma.sql`AND ${Prisma.raw(alias)}."costCenterId" IS NOT NULL`;
+  }
+  return Prisma.sql`AND ${Prisma.raw(alias)}."costCenterId" = ${scope.costCenterId}`;
+}
+
+// Quantidades deste relatório já eram calculadas por StockMovement. Para manter
+// exatamente essa regra, o filtro novo associa a movimentação ao pedido pelo
+// documentRef/código usado na geração do estoque, sem trocar a fonte do cálculo.
+function stockMovementCostCenterSql(filters, alias = 'sm') {
+  const scope = filters.costCenterScope || {};
+  if (!Object.hasOwn(scope, 'costCenterId')) return Prisma.empty;
+
+  let predicate;
+  if (scope.costCenterId === null) {
+    predicate = Prisma.sql`cost_sale."costCenterId" IS NULL`;
+  } else if (typeof scope.costCenterId === 'object') {
+    predicate = Prisma.sql`cost_sale."costCenterId" IS NOT NULL`;
+  } else {
+    predicate = Prisma.sql`cost_sale."costCenterId" = ${scope.costCenterId}`;
+  }
+
+  return Prisma.sql`
+    AND EXISTS (
+      SELECT 1
+      FROM "Sale" cost_sale
+      WHERE cost_sale."companyId" = ${Prisma.raw(alias)}."companyId"
+        AND cost_sale.cod::text = ${Prisma.raw(alias)}."documentRef"
+        AND ${predicate}
+    )
+  `;
+}
+
 export const productSalesReportService = {
   resolveDateRange,
 
@@ -65,6 +105,7 @@ export const productSalesReportService = {
       WHERE s."companyId" = ${companyId}
         AND s.date >= ${start}
         AND s.date <= ${end}
+        ${saleCostCenterSql(filters)}
         ${filters.productId ? Prisma.sql`AND p.id = ${filters.productId}` : Prisma.empty}
         ${filters.categoryId ? Prisma.sql`AND p."categoryId" = ${filters.categoryId}` : Prisma.empty}
     `;
@@ -97,6 +138,7 @@ export const productSalesReportService = {
       WHERE s."companyId" = ${companyId}
         AND s.date >= ${start}
         AND s.date <= ${end}
+        ${saleCostCenterSql(filters)}
         ${filters.productId ? Prisma.sql`AND p.id = ${filters.productId}` : Prisma.empty}
         ${filters.categoryId ? Prisma.sql`AND p."categoryId" = ${filters.categoryId}` : Prisma.empty}
       GROUP BY DATE_TRUNC('month', s.date)
@@ -116,6 +158,7 @@ export const productSalesReportService = {
         AND sm.type = 'OUT'
         AND sm."createdAt" >= ${start}
         AND sm."createdAt" <= ${end}
+        ${stockMovementCostCenterSql(filters)}
       GROUP BY p.id, p.description
       ORDER BY quantity DESC
       LIMIT 10
@@ -133,6 +176,7 @@ export const productSalesReportService = {
       WHERE s."companyId" = ${companyId}
         AND s.date >= ${start}
         AND s.date <= ${end}
+        ${saleCostCenterSql(filters)}
         ${filters.productId ? Prisma.sql`AND p.id = ${filters.productId}` : Prisma.empty}
         ${filters.categoryId ? Prisma.sql`AND p."categoryId" = ${filters.categoryId}` : Prisma.empty}
       GROUP BY p.id, p.description
@@ -170,9 +214,11 @@ export const productSalesReportService = {
         FROM "Product" p
         LEFT JOIN "StockMovement" sm ON sm."productId" = p.id AND sm."companyId" = p."companyId"
           AND sm.type = 'OUT' AND sm."createdAt" >= ${start} AND sm."createdAt" <= ${end}
+          ${stockMovementCostCenterSql(filters)}
         LEFT JOIN "SaleItem" si ON si."productId" = p.id
         LEFT JOIN "Sale" s ON s.id = si."saleId" AND s."companyId" = ${companyId}
           AND s.date >= ${start} AND s.date <= ${end}
+          ${saleCostCenterSql(filters)}
         WHERE ${productFilter}
         GROUP BY p.id
         HAVING COALESCE(SUM(sm.quantity), 0) > 0 OR COALESCE(SUM(si.total), 0) > 0
@@ -193,6 +239,7 @@ export const productSalesReportService = {
         FROM "StockMovement" sm
         WHERE sm."productId" = p.id AND sm."companyId" = p."companyId"
           AND sm.type = 'OUT' AND sm."createdAt" >= ${start} AND sm."createdAt" <= ${end}
+          ${stockMovementCostCenterSql(filters)}
       ) out_data ON true
       LEFT JOIN LATERAL (
         SELECT
@@ -202,6 +249,7 @@ export const productSalesReportService = {
         INNER JOIN "Sale" s ON s.id = si."saleId"
         WHERE si."productId" = p.id AND s."companyId" = ${companyId}
           AND s.date >= ${start} AND s.date <= ${end}
+          ${saleCostCenterSql(filters)}
       ) sale_data ON true
       WHERE ${productFilter}
         AND (COALESCE(out_data.quantity, 0) > 0 OR COALESCE(sale_data.revenue, 0) > 0)
@@ -237,6 +285,7 @@ export const productSalesReportService = {
         FROM "StockMovement" sm
         WHERE sm."productId" = p.id AND sm."companyId" = p."companyId"
           AND sm.type = 'OUT' AND sm."createdAt" >= ${start} AND sm."createdAt" <= ${end}
+          ${stockMovementCostCenterSql(filters)}
       ) out_data ON true
       LEFT JOIN LATERAL (
         SELECT COALESCE(SUM(si.total), 0) AS revenue
@@ -244,6 +293,7 @@ export const productSalesReportService = {
         INNER JOIN "Sale" s ON s.id = si."saleId"
         WHERE si."productId" = p.id AND s."companyId" = ${companyId}
           AND s.date >= ${start} AND s.date <= ${end}
+          ${saleCostCenterSql(filters)}
       ) sale_data ON true
       WHERE ${productFilter}
         AND (COALESCE(out_data.quantity, 0) > 0 OR COALESCE(sale_data.revenue, 0) > 0)
@@ -378,6 +428,7 @@ export const productSalesReportService = {
       WHERE s."companyId" = ${companyId}
         AND s.date >= ${start}
         AND s.date <= ${end}
+        ${saleCostCenterSql(filters)}
         ${filters.productId ? Prisma.sql`AND p.id = ${filters.productId}` : Prisma.empty}
         ${filters.categoryId ? Prisma.sql`AND p."categoryId" = ${filters.categoryId}` : Prisma.empty}
       GROUP BY DATE_TRUNC(${Prisma.raw(`'${unit}'`)}, s.date)
@@ -410,6 +461,11 @@ export const productSalesReportService = {
   },
 
   async getFullReport(companyId, query) {
+    const costCenterScope = await resolveCostCenterScope(
+      prisma,
+      companyId,
+      query.costCenterScope,
+    );
     const filters = {
       startDate: query.startDate,
       endDate: query.endDate,
@@ -417,6 +473,7 @@ export const productSalesReportService = {
       year: query.year,
       productId: query.productId || undefined,
       categoryId: query.categoryId || undefined,
+      costCenterScope,
     };
 
     const page = Math.max(1, Number(query.page) || 1);

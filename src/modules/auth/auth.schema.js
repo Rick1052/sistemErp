@@ -18,4 +18,10 @@ export const registerSchema = z.object({
 
 export const refreshSchema = z.object({
     refreshToken: z.string().min(1, 'Refresh token é obrigatório'),
+    // Compatibilidade com refresh tokens antigos, que ainda não carregavam o tenant.
+    companyId: z.string().uuid().optional().nullable(),
 });
+
+export const switchCompanySchema = z.object({
+    companyId: z.string().uuid('Empresa inválida'),
+}).strict();

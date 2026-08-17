@@ -1,5 +1,5 @@
 import dotenv from 'dotenv'
-dotenv.config()
+dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || '.env' })
 
 import app from './app.js'
 import logger from './utils/logger.js'

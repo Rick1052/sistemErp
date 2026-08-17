@@ -1,6 +1,7 @@
 import prisma from '../../database/prisma.js';
 import { Prisma } from '@prisma/client';
 import { salesReportService } from './salesReport.service.js';
+import { resolveCostCenterScope } from '../costCenters/costCenter.service.js';
 
 const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
@@ -52,6 +53,12 @@ function buildSaleWhereParts(companyId, { start, end, filters }) {
   if (filters.clientId) parts.push(Prisma.sql`s."clientId" = ${filters.clientId}`);
   if (filters.city) parts.push(Prisma.sql`c.city = ${filters.city}`);
   if (filters.state) parts.push(Prisma.sql`c.state = ${filters.state}`);
+  if (Object.hasOwn(filters.costCenterScope || {}, 'costCenterId')) {
+    const value = filters.costCenterScope.costCenterId;
+    if (value === null) parts.push(Prisma.sql`s."costCenterId" IS NULL`);
+    else if (typeof value === 'object') parts.push(Prisma.sql`s."costCenterId" IS NOT NULL`);
+    else parts.push(Prisma.sql`s."costCenterId" = ${value}`);
+  }
 
   if (filters.productId || filters.categoryId) {
     const itemParts = [Prisma.sql`si."saleId" = s.id`];
@@ -85,6 +92,11 @@ function itemFilterSql(filters) {
 
 export const commercialSalesReportService = {
   async getFullReport(companyId, query = {}) {
+    const costCenterScope = await resolveCostCenterScope(
+      prisma,
+      companyId,
+      query.costCenterScope,
+    );
     const filters = {
       startDate: query.startDate,
       endDate: query.endDate,
@@ -96,6 +108,7 @@ export const commercialSalesReportService = {
       sellerId: query.sellerId || undefined,
       city: query.city || undefined,
       state: query.state || undefined,
+      costCenterScope,
     };
 
     const { start, end } = salesReportService.resolveDateRange(filters);
@@ -145,6 +158,7 @@ export const commercialSalesReportService = {
           c.name AS "clientName",
           c.city,
           c.state,
+          cc.name AS "costCenterName",
           (${revenueExpr})::float AS revenue,
           (${qtyExpr}) AS "itemsQty",
           seller."sellerId",
@@ -152,6 +166,7 @@ export const commercialSalesReportService = {
         FROM "Sale" s
         INNER JOIN "SaleStatus" ss ON ss.id = s."statusId"
         INNER JOIN "Client" c ON c.id = s."clientId"
+        LEFT JOIN "CostCenter" cc ON cc.id = s."costCenterId" AND cc."companyId" = s."companyId"
         LEFT JOIN LATERAL (
           SELECT sm."userId" AS "sellerId", u.name AS "sellerName"
           FROM "StockMovement" sm
@@ -205,6 +220,7 @@ export const commercialSalesReportService = {
       itemsQty: toNumber(row.itemsQty),
       sellerId: row.sellerId || null,
       sellerName: row.sellerName || 'Sem vendedor',
+      costCenter: row.costCenterName || null,
     }));
 
     const totalRevenue = round2(sales.reduce((acc, s) => acc + s.revenue, 0));
